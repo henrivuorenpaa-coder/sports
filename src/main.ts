@@ -619,6 +619,8 @@ const GARMIN_ERRORS: Record<string, string> = {
   garmin_not_configured: "Garmin-avain puuttuu palvelimelta (GARMIN_PERSONAL_API_KEY).",
   garmin_key: "Garmin hylkäsi avaimen. Tarkista, ettei Personal API -avain ole vanhentunut.",
   not_allowed: "Tunnuksellasi ei ole käyttöoikeutta (ALLOWED_EMAILS).",
+  unauthenticated: "Palvelin ei hyväksynyt kirjautumista. Tarkista, että VITE_FIREBASE_PROJECT_ID on Vercelin ympäristömuuttujissa.",
+  garmin_error: "Garminin palvelu ei vastannut. Yritä hetken päästä uudelleen.",
 };
 /** Hakee Garmin-datan /api/garmin-funktiosta ja tallentaa sen. `manual` näyttää myös virheet ja onnistumisen. */
 async function syncGarmin(manual = false) {
@@ -632,13 +634,16 @@ async function syncGarmin(manual = false) {
       body: JSON.stringify({ days: S.garmin.syncedAt ? 14 : 45 }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw { code: body.code };
-    await S.store.saveGarmin(body as GarminData);
+    if (!res.ok) throw { code: body.code, status: res.status };
+    try { await S.store.saveGarmin(body as GarminData); }
+    catch (err) { throw { code: "save_failed", status: 0, msg: String((err as Error)?.message ?? err) }; }
     if (manual) toast("Garmin-data päivitetty");
   } catch (e) {
-    const code = (e as { code?: string })?.code ?? "";
+    const { code = "", status, msg } = (e ?? {}) as { code?: string; status?: number; msg?: string };
     // Automaattinen haku ei häiritse, jos Garminia ei ole otettu käyttöön.
-    if (manual || (code && code !== "garmin_not_configured")) toast(GARMIN_ERRORS[code] || "Garmin-datan haku epäonnistui.");
+    if (code === "save_failed") toast(`Garmin-data haettiin, mutta tallennus Firestoreen epäonnistui: ${msg}`);
+    else if (manual || (code && code !== "garmin_not_configured"))
+      toast(GARMIN_ERRORS[code] || `Garmin-datan haku epäonnistui (${status ? `HTTP ${status}` : "ei yhteyttä palvelimeen"}${code ? `, ${code}` : ""}).`);
   } finally { S.garminBusy = false; render(); }
 }
 
