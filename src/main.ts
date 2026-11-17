@@ -10,7 +10,7 @@ import {
 } from "./schedule.ts";
 import { cleanProposals, coachPrompt } from "./coach.ts";
 import { PROGRAMS, planFor, programIdOf, programOf, runCountsOf } from "./programs/index.ts";
-import { firebaseSetup, getFirebaseDb, resetPassword, signInEmail, signOutUser, signUpEmail, watchUser } from "./lib/firebase.ts";
+import { firebaseSetup, getFirebaseDb, getIdToken, resetPassword, signInEmail, signOutUser, signUpEmail, watchUser } from "./lib/firebase.ts";
 import { authErrorText } from "./lib/auth-errors.ts";
 import { clearLocal, hasLocalData, localStore, readLocal } from "./storage/local.ts";
 import { firestoreStore } from "./storage/firestore.ts";
@@ -47,10 +47,29 @@ const S = {
 };
 
 /**
- * Valmentajan kutsu. Artefaktissa tämä oli Clauden `sample`-capability; tuotannossa se tulee
- * Vercelin /api/coach-funktiosta (Claude API). Kunnes funktio on olemassa, valmentaja ei ole käytössä.
+ * Valmentajan kutsu Vercelin /api/coach-funktioon (Claude API). Vaatii kirjautumisen; palvelin tarkistaa,
+ * että käyttäjä on sallittujen listalla. Virheet heitetään muodossa {code}.
  */
-const askCoach: ((prompt: string, signal: AbortSignal) => Promise<unknown>) | null = null;
+async function askCoach(prompt: string, signal: AbortSignal): Promise<unknown> {
+  const token = await getIdToken();
+  if (!token) throw { code: "unauthenticated" };
+  const res = await fetch("/api/coach", {
+    method: "POST", signal,
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ prompt }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw { code: body.code || `http_${res.status}` };
+  return body;
+}
+const COACH_ERRORS: Record<string, string> = {
+  rate_limited: "Claudea on käytetty juuri paljon. Yritä hetken päästä uudelleen.",
+  invalid_json: "Valmentajan vastausta ei saatu luettua. Yritä uudelleen.",
+  unauthenticated: "Kirjaudu sisään käyttääksesi valmentajaa.",
+  not_allowed: "Tunnuksellasi ei ole valmentajan käyttöoikeutta (COACH_ALLOWED_EMAILS).",
+  bad_api_key: "Claude API -avain puuttuu tai on virheellinen (ANTHROPIC_API_KEY).",
+  refusal: "Valmentaja ei voinut vastata tähän. Kokeile muotoilla kysymys toisin.",
+};
 
 const settings = (): Settings => S.settings || S.defaults;
 const rules = (): Rule[] => settings().recurring || S.defaults.recurring;
@@ -221,7 +240,7 @@ function renderCoach() {
   const max = Math.max(60, ...weeks.map((w) => Math.max(w.r + w.k, w.p)));
 
   let coach = "";
-  if (!askCoach) coach = `<p class="muted small">Valmentaja otetaan käyttöön, kun Claude API -yhteys on kytketty sovellukseen.</p>`;
+  if (!S.user) coach = `<p class="muted small">Kirjaudu sisään käyttääksesi valmentajaa.</p>`;
   else {
     coach = `<div class="field"><label for="c-q">Kysy tai kerro jotain (valinnainen)</label><textarea id="c-q" maxlength="600" placeholder="esim. Pohkeet ovat kipeät taekwondon jälkeen, kannattaako lauantain juoksu tehdä?">${esc(S.coachQ)}</textarea></div>
       <div class="btnrow">${S.coachBusy ? `<button class="btn" data-act="coach-stop">Pysäytä</button>` : `<button class="btn primary" data-act="coach-run">${S.coachQ.trim() ? "Kysy valmentajalta" : "Analysoi tilanne"}</button>`}</div>`;
@@ -272,7 +291,7 @@ function propHtml(p: Proposal, i: number) {
 
 let coachCtl: AbortController | null = null;
 async function runCoach() {
-  if (!askCoach || S.coachBusy) return;
+  if (!S.user || S.coachBusy) return;
   const q = S.coachQ.trim();
   coachCtl = new AbortController();
   S.coachBusy = true; render();
@@ -286,8 +305,7 @@ async function runCoach() {
   } catch (e) {
     const code = (e as { code?: string; name?: string })?.code ?? (e as { name?: string })?.name;
     if (code !== "AbortError" && code !== "cancelled")
-      S.coach = { ...(S.coach || {}), error: code === "rate_limited" ? "Claudea on käytetty juuri paljon. Yritä hetken päästä uudelleen."
-        : code === "invalid_json" ? "Valmentajan vastausta ei saatu luettua. Yritä uudelleen." : "Valmentaja ei vastannut. Yritä uudelleen." };
+      S.coach = { ...(S.coach || {}), error: COACH_ERRORS[code ?? ""] || "Valmentaja ei vastannut. Yritä uudelleen." };
   } finally { S.coachBusy = false; coachCtl = null; render(); }
 }
 async function saveCoach() {

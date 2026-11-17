@@ -55,6 +55,11 @@ export async function resetPassword(email: string) {
   await sendPasswordResetEmail(a, email);
 }
 
+/** Kirjautuneen käyttäjän ID-token /api-kutsuihin. */
+export async function getIdToken() {
+  return auth?.currentUser ? auth.currentUser.getIdToken() : null;
+}
+
 export async function signOutUser() {
   if (auth) await signOut(auth);
 }
