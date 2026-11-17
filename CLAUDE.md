@@ -28,7 +28,7 @@ Vite + TypeScript (vanilla, ei UI-kirjastoa), PWA (`vite-plugin-pwa`), Firebase 
   jossa käyttäjän nykyinen data on (artefaktin `db`: `settings/main`, `log/<id>`, `coach/last`)
 
 Tietomalli (sama artefaktissa ja Firestoressa):
-- `settings/main` – `programId` (puuttuu → oletusohjelma), aloituspäivä, juoksupäivät, `recurring`, `moves`, `skips`, `overrides`, `repeats`, `dismissed`, `rSkips`, `tkdMin`
+- `settings/main` – `programId` (puuttuu → oletusohjelma), aloituspäivä, juoksupäivät, `recurring`, `moves`, `skips`, `overrides`, `repeats`, `dismissed`, `rSkips`, `tkdMin`, `intervals`
 - `garmin/…` – Garmin-synkronoinnin tulos (ks. alla)
 - `log/<id>` – `{kind: run|tkd|other, date, minutes, rpe?, km?, note, status: done|planned, sessionKey?, programId?, ruleRef?, label?}`
   – ohjelman juoksu tunnistetaan parista `sessionKey` + `programId` (puuttuva `programId` = oletusohjelma)
@@ -59,6 +59,10 @@ selaimen tietojen siirtoa tilille. Asetuksissa on JSON-vienti/-tuonti (myös art
      Firestoreen `garmin/meta`, `garmin/day-<pvm>`, `garmin/act-<id>` – palvelin ei tarvitse palvelutiliä. Env: `GARMIN_PERSONAL_API_KEY`.
      Client-logiikka `src/garmin.ts`: aktiviteetin laji, ohjelman juoksun osuma (±3 pv), palautumisvinkit, valmentajan prompt.
      Kirjaus Garmin-aktiviteetista tallentaa `garminId`:n.
-   - `intervals-push` – hyväksytyt/muuttuneet treenit intervals.icu:n kalenteriin → Garmin-kello
+   - ✅ `api/intervals.ts` – tulevat ohjelman juoksut (14 pv) intervals.icu:n kalenteriin → Garmin Connect → kello.
+     Selain muodostaa tapahtumat (`src/intervals.ts`: `workoutText()` intervals.icu-treenitekstinä, `external_id` `sports:{programId}:{key}`),
+     palvelin vertaa kalenteriin (`api/_lib/intervals-lib.ts` `diffEvents`) ja lisää/päivittää/poistaa vain `sports:`-tapahtumia.
+     Basic-auth `API_KEY:<avain>`. Env: `INTERVALS_API_KEY`, `INTERVALS_ATHLETE_ID`. Ensimmäisen viennin jälkeen
+     `settings.intervals.auto` → vienti automaattisesti, kun sisällön tunniste (`sig`) muuttuu.
 
 Periaate: valmentaja ehdottaa, käyttäjä hyväksyy – ohjelma ei muutu automaattisesti.

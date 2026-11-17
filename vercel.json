@@ -26,6 +26,9 @@
     },
     "api/garmin.ts": {
       "maxDuration": 30
+    },
+    "api/intervals.ts": {
+      "maxDuration": 30
     }
   }
 }

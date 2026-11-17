@@ -10,6 +10,7 @@ import {
 } from "./schedule.ts";
 import { cleanProposals, coachPrompt } from "./coach.ts";
 import { activityKind, activityLabel, latestDay, loggedGarminIds, matchSession, recoveryNotes, restingBaseline } from "./garmin.ts";
+import { INTERVALS_DAYS, eventsSignature, intervalsEvents } from "./intervals.ts";
 import { PROGRAMS, planFor, programIdOf, programOf, runCountsOf } from "./programs/index.ts";
 import { firebaseSetup, getFirebaseDb, getIdToken, resetPassword, signInEmail, signOutUser, signUpEmail, watchUser } from "./lib/firebase.ts";
 import { authErrorText } from "./lib/auth-errors.ts";
@@ -50,6 +51,8 @@ const S = {
   garmin: EMPTY_GARMIN as GarminData,
   garminBusy: false,
   garminTried: false,
+  icuBusy: false,
+  icuTriedSig: "",
 };
 
 /**
@@ -279,6 +282,7 @@ function renderCoach() {
     <div class="chart" style="--n:${weeks.length}">${weeks.map((w) => `<div class="col" title="Juoksu ${w.r} min, taekwondo ja muu ${w.k} min, suunniteltu ${w.p} min"><span class="p" style="height:${((w.p / max) * 100).toFixed(1)}%"></span><span class="r" style="height:${((w.r / max) * 100).toFixed(1)}%"></span><span class="k" style="height:${((w.k / max) * 100).toFixed(1)}%"></span></div>`).join("")}</div>
     <div class="xlab num" style="--n:${weeks.length}">${weeks.map((_, i) => `<span>vk ${i + 1}</span>`).join("")}</div>
   </div>
+  ${intervalsCard(today)}
   ${garminCard(today)}`;
 }
 function garminCard(today: string) {
@@ -304,6 +308,20 @@ function garminCard(today: string) {
     <div>${GARMIN.map(([t, desc]) => `<div class="gm"><b>${t}</b><p>${esc(sub[t] || desc)}</p><span class="v num">${esc(vals[t] ?? "–")}</span></div>`).join("")}</div>
     ${S.user ? `<div class="btnrow"><button class="btn small" data-act="garmin-sync"${S.garminBusy ? " disabled" : ""}>Päivitä Garmin-data</button></div>` : ""}
     <div class="flow"><span>Garmin-kello</span>→<span>Sports</span>→<span>Valmentaja ehdottaa</span>→<span>Sinä hyväksyt</span>→<span>intervals.icu</span>→<span>Kello</span></div>
+  </div>`;
+}
+function intervalsCard(today: string) {
+  const ic = settings().intervals, x = intervalsEvents(ctx(), today), cur = eventsSignature(x) === ic?.sig;
+  const chip = S.icuBusy ? `<span class="chip up">Viedään…</span>`
+    : ic?.at ? `<span class="chip ${cur ? "done" : "up"}">${cur ? "Ajan tasalla" : "Muutoksia viemättä"} · ${fi(ic.at.slice(0, 10))} ${new Date(ic.at).toTimeString().slice(0, 5)}</span>`
+    : `<span class="chip up">Ei viety</span>`;
+  const list = x.events.length
+    ? `<ul class="small muted icu-list">${x.events.map((e) => `<li>${esc(fiLong(e.start_date_local.slice(0, 10)))}: ${esc(e.description.split("\n")[0])}</li>`).join("")}</ul>`
+    : `<p class="small muted">Ei tulevia juoksuja seuraavan ${INTERVALS_DAYS} päivän aikana.</p>`;
+  return `<div class="card"><div class="view-head"><span class="label">Treenit kelloon</span>${chip}</div>
+    <p class="small muted" style="max-width:65ch">Seuraavan ${INTERVALS_DAYS} päivän juoksut viedään intervals.icu:n kalenteriin vaiheittaisina treeneinä, ja sieltä ne siirtyvät Garmin Connectiin ja kelloon. ${ic?.auto ? "Kalenteri päivittyy automaattisesti, kun siirrät, ohitat tai hyväksyt muutoksen." : "Ensimmäisen viennin jälkeen kalenteri päivittyy automaattisesti muutosten jälkeen."}</p>
+    ${list}
+    ${S.user ? `<div class="btnrow"><button class="btn small${ic?.at ? "" : " primary"}" data-act="icu-push"${S.icuBusy ? " disabled" : ""}>${ic?.at ? "Päivitä kelloon nyt" : "Vie treenit kelloon"}</button>${ic?.auto ? `<button class="btn small ghost" data-act="icu-auto-off">Lopeta automaattinen päivitys</button>` : ""}</div>` : ""}
   </div>`;
 }
 function propHtml(p: Proposal, i: number) {
@@ -649,6 +667,48 @@ async function syncGarmin(manual = false) {
   } finally { S.garminBusy = false; render(); }
 }
 
+/* ---------- intervals.icu ---------- */
+const ICU_ERRORS: Record<string, string> = {
+  intervals_not_configured: "intervals.icu-avain puuttuu palvelimelta (INTERVALS_API_KEY, INTERVALS_ATHLETE_ID).",
+  intervals_key: "intervals.icu hylkäsi API-avaimen. Tarkista INTERVALS_API_KEY.",
+  intervals_athlete: "intervals.icu ei löytänyt urheilijaa. Tarkista INTERVALS_ATHLETE_ID (muotoa i123456).",
+  intervals_error: "intervals.icu ei hyväksynyt treenejä. Yritä hetken päästä uudelleen.",
+  not_allowed: "Tunnuksellasi ei ole käyttöoikeutta (ALLOWED_EMAILS).",
+  unauthenticated: "Palvelin ei hyväksynyt kirjautumista.",
+  server_misconfigured: "Palvelimelta puuttuu VITE_FIREBASE_PROJECT_ID.",
+};
+/** Vie tulevat juoksut intervals.icu:hun. `manual` näyttää tuloksen; automaattinen vienti yrittää samaa sisältöä vain kerran. */
+async function pushIntervals(manual = false) {
+  if (!S.user || S.icuBusy || S.store.mode !== "cloud") return;
+  const x = intervalsEvents(ctx(), todayIso()), sig = eventsSignature(x);
+  S.icuBusy = true; S.icuTriedSig = sig; render();
+  try {
+    const token = await getIdToken();
+    const res = await fetch("/api/intervals", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify(x),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw { code: body.code, status: res.status };
+    await saveSettings({ intervals: { auto: true, sig, at: body.syncedAt || new Date().toISOString() } });
+    if (manual) {
+      const n = body.created + body.updated + body.removed;
+      toast(n ? `Kalenteri päivitetty: ${body.created} uutta, ${body.updated} muutettua, ${body.removed} poistettua` : "Kalenteri oli jo ajan tasalla");
+    }
+  } catch (e) {
+    const { code = "", status } = (e ?? {}) as { code?: string; status?: number };
+    toast(ICU_ERRORS[code] || `Treenien vienti epäonnistui (${status ? `HTTP ${status}` : "ei yhteyttä palvelimeen"}${code ? `, ${code}` : ""}).`);
+  } finally { S.icuBusy = false; render(); }
+}
+/** Automaattinen vienti, kun vietävä sisältö on muuttunut edellisestä viennistä. */
+function maybeAutoPushIntervals() {
+  const ic = S.settings?.intervals;
+  if (!ic?.auto || !S.loaded.settings || !S.loaded.logs || S.icuBusy) return;
+  const sig = eventsSignature(intervalsEvents(ctx(), todayIso()));
+  if (sig !== ic.sig && sig !== S.icuTriedSig) void pushIntervals();
+}
+
 /* ---------- tuonti ja vienti ---------- */
 function exportData() {
   const data: StoreData & { exportedAt: string } = { settings: S.settings, logs: S.logs, coach: S.coach, exportedAt: new Date().toISOString() };
@@ -785,6 +845,8 @@ document.addEventListener("click", async (ev) => {
   if (act === "export") return exportData();
   if (act === "garmin") return openSheet("garmin", { id: ds.id });
   if (act === "garmin-sync") return syncGarmin(true);
+  if (act === "icu-push") return pushIntervals(true);
+  if (act === "icu-auto-off") { await saveSettings({ intervals: { ...(st.intervals || {}), auto: false } }); toast("Automaattinen päivitys lopetettu"); return render(); }
   if (act === "garmin-log") {
     const a = S.garmin.activities.find((x) => x.id === ds.gid);
     if (!a) return;
@@ -850,7 +912,7 @@ let unsubscribe: () => void = () => {};
 function useStore(store: Store) {
   unsubscribe();
   S.store = store;
-  S.settings = null; S.logs = []; S.coach = null; S.garmin = EMPTY_GARMIN; S.garminTried = false;
+  S.settings = null; S.logs = []; S.coach = null; S.garmin = EMPTY_GARMIN; S.garminTried = false; S.icuTriedSig = "";
   S.loaded = { settings: false, logs: false };
   unsubscribe = store.subscribe((p) => {
     if ("settings" in p) { S.settings = p.settings ?? null; S.loaded.settings = true; }
@@ -866,6 +928,7 @@ function useStore(store: Store) {
     if (store.mode === "cloud" && S.loaded.settings && S.loaded.logs)
       S.offerMigrate = !S.settings && !S.logs.length && hasLocalData();
     render();
+    maybeAutoPushIntervals();
   }, (msg) => toast(msg));
 }
 

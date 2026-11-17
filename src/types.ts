@@ -55,6 +55,8 @@ export interface Settings {
   overrides: Record<string, Block[]>;
   rSkips: string[];
   recurring: Rule[];
+  /** intervals.icu-vienti: `auto` = päivitä kalenteri muutosten jälkeen, `sig` = viimeksi viedyn sisällön tunniste. */
+  intervals?: { auto: boolean; sig?: string; at?: string };
 }
 
 export interface LogEntry {

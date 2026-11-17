@@ -347,3 +347,4 @@ hr.sep{border:0;border-top:1px solid var(--line);margin:2px 0;width:100%}
 @media (min-width:960px){.toast{bottom:28px}}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .2s ease-out}@keyframes up{from{transform:translateY(18px);opacity:.6}}}
 @media (prefers-reduced-motion:reduce){.thinking::before{animation:none}.btn{transition:none}}
+.icu-list{margin:.4rem 0 .6rem;padding-left:1.1rem;line-height:1.6}
