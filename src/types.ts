@@ -1,11 +1,33 @@
-export type TimedBlock = { k: "wu" | "cd" | "walk" | "run" | "test"; m: number };
+export type TimedBlock = { k: "wu" | "cd" | "walk" | "run"; m: number };
+/** Testijuoksu: `km` kilometriä, arvioitu kesto `m` min. */
+export type TestBlock = { k: "test"; m: number; km?: number };
 export type RepBlock = { k: "iv" | "str"; rep: number; run: number; walk: number };
-export type Block = TimedBlock | RepBlock;
+export type Block = TimedBlock | TestBlock | RepBlock;
 
 export interface PlanWeek {
   title: string;
   focus: string;
   s: Block[][];
+}
+
+/** Valittava harjoitusohjelma. Uudet ohjelmat lisätään `src/programs/`-kansioon ja luetteloon `PROGRAMS`. */
+export interface Program {
+  id: string;
+  /** Lyhyt nimi valintalistaan, esim. "0 → 5 km". */
+  name: string;
+  /** Otsikko ohjelmanäkymään. */
+  title: string;
+  /** Yhden lauseen kuvaus asetuksiin. */
+  description: string;
+  /** Tavoite valmentajan promptiin. */
+  goal: string;
+  /** Edistymismittari: otsikko ja pisimmän yhtäjaksoisen juoksun tavoite minuutteina. */
+  goalLabel: string;
+  goalMinutes: number;
+  /** Teksti, kun ohjelman juoksut on käyty läpi. */
+  finishText: string;
+  /** Ohjelma juoksukertojen määrän mukaan (esim. 2 ja 3 kertaa viikossa). */
+  variants: Record<number, PlanWeek[]>;
 }
 
 export type Kind = "run" | "tkd" | "other";
@@ -21,6 +43,8 @@ export interface Rule {
 }
 
 export interface Settings {
+  /** Aktiivinen ohjelma. Puuttuu vanhasta datasta → oletusohjelma. */
+  programId?: string;
   startDate: string;
   runDays: number[];
   tkdMin: number;
@@ -43,6 +67,8 @@ export interface LogEntry {
   note: string;
   status?: "done" | "planned";
   sessionKey?: string;
+  /** Ohjelma, jonka juoksuun `sessionKey` viittaa. Puuttuu vanhasta datasta → oletusohjelma. */
+  programId?: string;
   ruleRef?: string;
   label?: string;
   createdAt?: number;

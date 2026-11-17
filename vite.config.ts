@@ -7,9 +7,9 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["icon.svg", "apple-touch-icon.png"],
       manifest: {
-        name: "Askel 5K",
-        short_name: "Askel 5K",
-        description: "Henkilökohtainen juoksuvalmentaja: 0 → 5 km taekwondon rinnalla.",
+        name: "Sports",
+        short_name: "Sports",
+        description: "Henkilökohtainen valmentaja: harjoitusohjelmat, juoksu ja taekwondo samassa kalenterissa.",
         lang: "fi",
         start_url: "/",
         display: "standalone",

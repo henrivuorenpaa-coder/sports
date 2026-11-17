@@ -310,6 +310,12 @@ input[type=range]{width:100%;accent-color:var(--run-fill);height:28px}
 .wkpick input:checked + label{background:var(--run-fill);color:var(--on-fill)}
 .wkpick.tkd input:checked + label{background:var(--tkd-fill)}
 .wkpick input:focus-visible + label{outline:2px solid var(--run);outline-offset:2px}
+.progpick{display:flex;flex-direction:column;gap:8px}
+.progpick input{position:absolute;opacity:0;pointer-events:none}
+.progpick label{display:flex;flex-direction:column;gap:2px;padding:12px 14px;border-radius:14px;background:var(--surface-2);border:1.5px solid transparent;cursor:pointer}
+.progpick label b{font-family:var(--display);font-size:22px;font-style:italic;font-weight:800;text-transform:uppercase}
+.progpick input:checked + label{border-color:var(--run);background:var(--run-soft)}
+.progpick input:focus-visible + label{outline:2px solid var(--run);outline-offset:2px}
 .err{color:var(--warn);font-size:14px;font-weight:600}
 .moverow,.inl{display:flex;gap:8px;align-items:end}
 .moverow .field,.inl .field{flex:1}

@@ -1,7 +1,7 @@
 import type { CoachState, LogEntry, Settings } from "../types.ts";
 import type { Store, StoreData } from "./store.ts";
 
-// Sama avain kuin artefaktiversiossa, jotta selaimeen tallennetut tiedot säilyvät.
+// Sama avain kuin Askel 5K -artefaktissa, jotta selaimeen tallennetut tiedot säilyvät.
 const LS = "askel5k.v3";
 
 export function readLocal(): StoreData {

@@ -49,6 +49,16 @@ describe("schedule", () => {
     expect(by["s1-1"].done?.id).toBe("l-s1-1");
   });
 
+  it("toisen ohjelman kirjaus ei merkitse juoksua tehdyksi", () => {
+    const other = { ...run("s0-0", "2026-11-04"), programId: "joku-muu" };
+    expect(schedule(ctx({}, [other]))[0].done).toBeUndefined();
+    expect(schedule(ctx({ programId: "joku-muu" }, [other]))[0].done?.id).toBe("l-s0-0");
+  });
+
+  it("vanha kirjaus ilman programId:tä kuuluu oletusohjelmaan", () => {
+    expect(schedule(ctx({ programId: undefined }, [run("s0-0", "2026-11-04")]))[0].done).toBeDefined();
+  });
+
   it("suunniteltu kirjaus ei merkitse juoksua tehdyksi", () => {
     const s = schedule(ctx({}, [{ ...run("s0-0", "2026-11-04"), status: "planned" }]));
     expect(s[0].done).toBeUndefined();

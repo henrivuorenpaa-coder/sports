@@ -1,11 +1,12 @@
 import { addDays, isDate, WD, WDL, WDPL, wd } from "./lib/dates.ts";
-import { planFor, summary, titleOf, totals } from "./plan.ts";
+import { summary, titleOf, totals } from "./plan.ts";
+import { planFor, programOf } from "./programs/index.ts";
 import { isDone, schedule, slotMap, status } from "./schedule.ts";
 import type { Block, Ctx, Proposal } from "./types.ts";
 
 /** Valmentajan prompt. Sama sisältö kulkee myöhemmin Vercelin /api/coach-funktion kautta Claude API:lle. */
 export function coachPrompt(c: Ctx, today: string, q: string) {
-  const st = c.settings, map = slotMap(st), P = planFor(st.runDays);
+  const st = c.settings, map = slotMap(st), P = planFor(st), prog = programOf(st);
   const sch = schedule(c).sort((a, b) => (a.date < b.date ? -1 : 1));
   const runs = sch.filter((s) => s.date >= addDays(today, -21)).slice(0, 14).map((s) => {
     const [, l] = status(s, today);
@@ -16,7 +17,7 @@ export function coachPrompt(c: Ctx, today: string, q: string) {
     .join("\n") || "(ei kirjauksia)";
   const rec = (st.recurring || []).filter((r) => !r.until || r.until >= today).map((r) => `${titleOf(r)} ${WDPL[r.weekday]} ${r.minutes} min`).join(", ") || "(ei)";
   const weeks = map.map((b, i) => `vk ${i + 1}: ${P[b].title}`).join("; ");
-  return `Olet kokenut, varovainen juoksuvalmentaja. Valmennettava palaa juoksuun pitkän tauon jälkeen. Tavoite: juosta 5 km yhtäjaksoisesti ohjelman lopussa. Hän juoksee ${st.runDays.length} kertaa viikossa ja harrastaa lisäksi taekwondoa. Vastaa suomeksi, selkeästi ja lyhyesti.
+  return `Olet kokenut, varovainen juoksuvalmentaja. Ohjelma: ${prog.name}. Tavoite: ${prog.goal}. Hän juoksee ${st.runDays.length} kertaa viikossa ja harrastaa lisäksi taekwondoa. Vastaa suomeksi, selkeästi ja lyhyesti.
 
 Tänään: ${today} (${WDL[wd(today)]}). Ohjelma alkoi ${st.startDate}, ${map.length} viikkoa: ${weeks}.
 

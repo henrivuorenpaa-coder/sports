@@ -1,6 +1,8 @@
-# Askel 5K – henkilökohtainen juoksuvalmentaja
+# Sports – henkilökohtainen valmentaja
 
-Paluu juoksuun: 8 viikon ohjelma 0 → 5 km, 2 (tai 3) juoksua viikossa taekwondon rinnalla.
+Valittavia harjoitusohjelmia taekwondon rinnalle. Ensimmäinen ohjelma on "0 → 5 km" (alun perin Askel 5K):
+8 viikkoa, 2 (tai 3) juoksua viikossa. Myöhemmin lisätään muita ohjelmia.
+Repo: https://github.com/henrivuorenpaa-coder/sports
 Käyttöliittymä on suomeksi ja tehty ensisijaisesti puhelimelle (responsiivinen myös desktopille).
 
 ## Rakenne
@@ -10,7 +12,10 @@ Vite + TypeScript (vanilla, ei UI-kirjastoa), PWA (`vite-plugin-pwa`), Firebase 
 - `index.html` – runko (header, näkymien `<section>`it, alanavigaatio)
 - `src/styles.css` – kaikki tyylit (tokenit `:root`issa, tumma teema)
 - `src/types.ts` – tietotyypit (`Settings`, `LogEntry`, `Block`, `Session`, `Proposal` …)
-- `src/plan.ts` – `PLAN2` / `PLAN3` (lohkot `wu`, `cd`, `walk`, `run`, `iv`, `str`, `test`), `segs`, `totals`, `summary`, `steps`
+- `src/programs/` – ohjelmaluettelo `PROGRAMS` (`index.ts`; ensimmäinen = oletus) ja ohjelmat, esim. `run-0-5k.ts`
+  (`PLAN2` / `PLAN3`). Ohjelmalla on `id`, nimi, tavoite (prompt + edistymismittari) ja `variants` juoksukertojen mukaan.
+  Uusi ohjelma: uusi tiedosto + lisäys `PROGRAMS`-listaan.
+- `src/plan.ts` – lohkojen esitys (lohkot `wu`, `cd`, `walk`, `run`, `iv`, `str`, `test{km}`): `segs`, `totals`, `summary`, `steps`
 - `src/schedule.ts` – puhtaat funktiot `Ctx = {settings, logs}` -tilasta:
   `schedule()` (avaimet `s{slot}-{i}`; moves/skips/overrides), `slotMap()` + `repeatPatch()` (viikon toisto siirtää
   myöhempien viikkojen avaimia), `virtualsOn()` (toistuvat treenit, `ruleRef = ruleId@date`), `notesFor()`, `repeatSuggestion()`
@@ -23,11 +28,12 @@ Vite + TypeScript (vanilla, ei UI-kirjastoa), PWA (`vite-plugin-pwa`), Firebase 
   jossa käyttäjän nykyinen data on (artefaktin `db`: `settings/main`, `log/<id>`, `coach/last`)
 
 Tietomalli (sama artefaktissa ja Firestoressa):
-- `settings/main` – aloituspäivä, juoksupäivät, `recurring`, `moves`, `skips`, `overrides`, `repeats`, `dismissed`, `rSkips`, `tkdMin`
-- `log/<id>` – `{kind: run|tkd|other, date, minutes, rpe?, km?, note, status: done|planned, sessionKey?, ruleRef?, label?}`
+- `settings/main` – `programId` (puuttuu → oletusohjelma), aloituspäivä, juoksupäivät, `recurring`, `moves`, `skips`, `overrides`, `repeats`, `dismissed`, `rSkips`, `tkdMin`
+- `log/<id>` – `{kind: run|tkd|other, date, minutes, rpe?, km?, note, status: done|planned, sessionKey?, programId?, ruleRef?, label?}`
+  – ohjelman juoksu tunnistetaan parista `sessionKey` + `programId` (puuttuva `programId` = oletusohjelma)
 - `coach/last` – viimeisin valmentajan analyysi ja ehdotukset
 
-Ilman Firebase-ympäristömuuttujia tai kirjautumatta sovellus toimii localStoragella. Kirjautuessa tarjotaan
+localStorage-avain on yhä `askel5k.v3`, jotta vanha data löytyy. Ilman Firebase-ympäristömuuttujia tai kirjautumatta sovellus toimii localStoragella. Kirjautuessa tarjotaan
 selaimen tietojen siirtoa tilille. Asetuksissa on JSON-vienti/-tuonti (myös artefaktin datan siirtoon).
 
 ## Komennot
@@ -38,7 +44,7 @@ selaimen tietojen siirtoa tilille. Asetuksissa on JSON-vienti/-tuonti (myös art
 
 ## Etenemissuunnitelma
 
-1. ✅ Git + projektirunko (Vite, TS, testit, PWA)
+1. ✅ Git + projektirunko (Vite, TS, testit, PWA), ohjelmaluettelo
 2. Firebase: projekti, Google-kirjautuminen, Firestore, `firestore.rules` käyttöön (`firebase deploy --only firestore:rules`)
 3. Vercel: repo kytketään, `VITE_FIREBASE_*` ympäristömuuttujiksi, Vercel-domain Firebase Authin sallittuihin domaineihin
 4. Datan siirto artefaktista: luetaan artefaktin db Claude Codessa ArtifactData-työkalulla → JSON → Asetukset → Tuo tiedot

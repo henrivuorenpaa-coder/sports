@@ -1,12 +1,12 @@
 import { addDays, cap, diffDays, fiLong, mondayOf, WDESS, wd } from "./lib/dates.ts";
-import { planFor } from "./plan.ts";
+import { DEFAULT_PROGRAM_ID, planFor, programIdOf } from "./programs/index.ts";
 import type { Ctx, LogEntry, NoteKind, Rule, Session, Settings, Virtual } from "./types.ts";
 
 export function defaultSettings(today: string): Settings {
   const runDays = [2, 5];
   const start = wd(today) <= runDays[0] ? mondayOf(today) : addDays(mondayOf(today), 7);
   return {
-    startDate: start, runDays, tkdMin: 75, repeats: [], dismissed: [], moves: {}, skips: {}, overrides: {}, rSkips: [],
+    programId: DEFAULT_PROGRAM_ID, startDate: start, runDays, tkdMin: 75, repeats: [], dismissed: [], moves: {}, skips: {}, overrides: {}, rSkips: [],
     recurring: [1, 3].map((d) => ({ id: `tkd-${d}`, kind: "tkd", weekday: d, minutes: 75, from: mondayOf(today) })),
   };
 }
@@ -17,7 +17,7 @@ export const isDone = (l: LogEntry) => l.status !== "planned";
 export function slotMap(st: Settings): number[] {
   const m: number[] = [];
   const reps = st.repeats || [];
-  planFor(st.runDays).forEach((_, b) => {
+  planFor(st).forEach((_, b) => {
     m.push(b);
     reps.filter((r) => r === b).forEach(() => m.push(b));
   });
@@ -26,14 +26,14 @@ export function slotMap(st: Settings): number[] {
 
 /** Kaikki ohjelman juoksut päivämäärineen. Avain `s{slot}-{i}` on pysyvä siirroille, ohituksille ja muokkauksille. */
 export function schedule({ settings: st, logs }: Ctx): Session[] {
-  const P = planFor(st.runDays), map = slotMap(st), days = [...st.runDays].sort((a, b) => a - b), out: Session[] = [];
+  const P = planFor(st), pid = programIdOf(st), map = slotMap(st), days = [...st.runDays].sort((a, b) => a - b), out: Session[] = [];
   const moves = st.moves || {}, skips = st.skips || {}, ov = st.overrides || {};
   map.forEach((b, slot) => days.forEach((d, i) => {
     const key = `s${slot}-${i}`, orig = addDays(st.startDate, slot * 7 + d);
     out.push({
       key, slot, base: b, idx: i, orig, date: moves[key] || orig, moved: !!moves[key],
       blocks: ov[key] || P[b].s[i], adjusted: !!ov[key], name: `Juoksu ${i + 1}`, skipped: !!skips[key],
-      done: logs.find((l) => l.sessionKey === key && isDone(l)),
+      done: logs.find((l) => l.sessionKey === key && programIdOf(l) === pid && isDone(l)),
     });
   }));
   return out;

@@ -3,12 +3,13 @@ import { registerSW } from "virtual:pwa-register";
 import type { User } from "firebase/auth";
 import { addDays, diffDays, fi, fiLong, iso, mondayOf, parse, todayIso, WD, WDL, WDPL, wd } from "./lib/dates.ts";
 import { esc, uid } from "./lib/html.ts";
-import { KIND, kindOf, planFor, rpeText, segs, short, steps, summary, titleOf, totals } from "./plan.ts";
+import { KIND, kindOf, rpeText, segs, short, steps, summary, titleOf, totals } from "./plan.ts";
 import {
   defaultSettings, eventsOn, isDone, notesFor, repeatPatch, repeatSuggestion, schedule, slotMap, status,
   tkdDoneOn, tkdPlannedOn, virtualsOn,
 } from "./schedule.ts";
 import { cleanProposals, coachPrompt } from "./coach.ts";
+import { PROGRAMS, planFor, programIdOf, programOf, runCountsOf } from "./programs/index.ts";
 import { firebaseSetup, getFirebaseDb, signInWithGoogle, signOutUser, watchUser } from "./lib/firebase.ts";
 import { clearLocal, hasLocalData, localStore, readLocal } from "./storage/local.ts";
 import { firestoreStore } from "./storage/firestore.ts";
@@ -52,7 +53,8 @@ const askCoach: ((prompt: string, signal: AbortSignal) => Promise<unknown>) | nu
 const settings = (): Settings => S.settings || S.defaults;
 const rules = (): Rule[] => settings().recurring || S.defaults.recurring;
 const ctx = (): Ctx => ({ settings: { ...settings(), recurring: rules() }, logs: S.logs });
-const plan = () => planFor(settings().runDays);
+const plan = () => planFor(settings());
+const program = () => programOf(settings());
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T | null;
 const inputVal = (id: string) => $<HTMLInputElement>(id)?.value ?? "";
@@ -119,7 +121,7 @@ function renderToday() {
       <div class="btnrow"><button class="btn primary" data-act="complete" data-key="${next.key}">Merkitse tehdyksi</button><button class="btn" data-act="session" data-key="${next.key}">Siirrä tai ohita</button></div></div>
     </article>`;
   } else if (curSlot >= 0) {
-    h += `<article class="card"><h3>Ohjelman juoksut käyty läpi</h3><p class="muted">Seuraava askel voi olla 5 km:n ylläpito tai 10 km:n ohjelma. Kysy valmentajalta.</p></article>`;
+    h += `<article class="card"><h3>Ohjelman juoksut käyty läpi</h3><p class="muted">${esc(program().finishText)}</p></article>`;
   }
   if (missed.length) h += `<div class="card"><span class="label">Väliin jääneet tällä viikolla</span>${missed.map((s) => `<button class="sess" data-act="session" data-key="${s.key}"><span class="sd"><b>${WD[wd(s.date)]}</b>${fi(s.date)}</span><span class="mid"><span class="t">${esc(kindOf(s.blocks))} <span>· ${esc(summary(s.blocks))}</span></span>${barHtml(s.blocks)}</span><span class="chip missed">Väliin</span></button>`).join("")}<p class="muted small">Älä tuplaa – jatka seuraavasta treenistä. Voit siirtää väliin jääneen toiselle päivälle tai kirjata sen, jos teit sen.</p></div>`;
 
@@ -174,7 +176,7 @@ function renderCalendar() {
 function renderPlan() {
   const today = todayIso(), st = settings(), sch = schedule(ctx()), map = slotMap(st), P = plan(), el = $("v-plan")!;
   const curSlot = Math.floor(diffDays(st.startDate, today) / 7);
-  let h = `<div class="view-head"><div><span class="label">${map.length} viikkoa · ${st.runDays.length} juoksua viikossa</span><h2>Takaisin juoksuun: 0 → 5 km</h2></div>
+  let h = `<div class="view-head"><div><span class="label">${map.length} viikkoa · ${st.runDays.length} juoksua viikossa</span><h2>${esc(program().title)}</h2></div>
     <div class="legend"><span><i style="background:var(--run)"></i>Juoksu</span><span><i style="background:var(--walk)"></i>Kävely</span><span><i style="background:var(--stride)"></i>Veto</span></div></div>`;
   map.forEach((b, slot) => {
     const w = P[b], ss = sch.filter((s) => s.slot === slot);
@@ -206,7 +208,7 @@ function renderCoach() {
   const runMin = dl.filter((l) => l.kind === "run").reduce((a, l) => a + (+l.minutes || 0), 0);
   const tkd = dl.filter((l) => l.kind === "tkd");
   const longest = done.reduce((a, s) => Math.max(a, totals(s.blocks).longest), 0);
-  const pct = Math.min(100, Math.round((longest / 35) * 100));
+  const prog = program(), pct = Math.min(100, Math.round((longest / prog.goalMinutes) * 100));
   const weeks = map.map((_, slot) => {
     const mon = addDays(st.startDate, slot * 7), sun = addDays(mon, 6);
     const r = dl.filter((l) => l.kind === "run" && l.date >= mon && l.date <= sun).reduce((a, l) => a + (+l.minutes || 0), 0);
@@ -242,7 +244,7 @@ function renderCoach() {
     <div class="stat"><span class="label">Pisin yhtäjaksoinen</span><span class="v num">${longest > 0 && longest < 1 ? Math.round(longest * 60) + "<small> s</small>" : Math.round(longest) + "<small> min</small>"}</span></div>
     <div class="stat"><span class="label">Taekwondo</span><span class="v num">${tkd.length}<small> krt</small></span></div>
   </div>
-  <div class="card goal"><div class="view-head"><span class="label">Kohti 5 km:ä</span><span class="num muted small">${Math.round(longest)} / ~35 min yhtäjaksoista juoksua</span></div><div class="track"><span style="width:${pct}%"></span></div></div>
+  <div class="card goal"><div class="view-head"><span class="label">${esc(prog.goalLabel)}</span><span class="num muted small">${Math.round(longest)} / ~${prog.goalMinutes} min yhtäjaksoista juoksua</span></div><div class="track"><span style="width:${pct}%"></span></div></div>
   <div class="card"><div class="view-head"><span class="label">Viikkokuorma, minuuttia</span><span class="legend"><span><i style="background:var(--run)"></i>Juoksu</span><span><i style="background:var(--tkd)"></i>Taekwondo ja muu</span><span><i style="border:1px dashed var(--muted)"></i>Suunniteltu juoksu</span></span></div>
     <div class="chart" style="--n:${weeks.length}">${weeks.map((w) => `<div class="col" title="Juoksu ${w.r} min, taekwondo ja muu ${w.k} min, suunniteltu ${w.p} min"><span class="p" style="height:${((w.p / max) * 100).toFixed(1)}%"></span><span class="r" style="height:${((w.r / max) * 100).toFixed(1)}%"></span><span class="k" style="height:${((w.k / max) * 100).toFixed(1)}%"></span></div>`).join("")}</div>
     <div class="xlab num" style="--n:${weeks.length}">${weeks.map((_, i) => `<span>vk ${i + 1}</span>`).join("")}</div>
@@ -250,7 +252,7 @@ function renderCoach() {
   <div class="card"><div class="view-head"><span class="label">Garmin-data valmentajalle</span><span class="chip up">Ei yhdistetty</span></div>
     <p class="small muted" style="max-width:65ch">Kun Garmin Personal API yhdistetään, nämä tiedot tulevat sovellukseen automaattisesti ja valmentaja käyttää niitä analyysissa. Muutokset ohjelmaan tehdään edelleen vain sinun hyväksynnälläsi.</p>
     <div>${GARMIN.map(([t, d]) => `<div class="gm"><b>${t}</b><p>${d}</p><span class="v">–</span></div>`).join("")}</div>
-    <div class="flow"><span>Garmin-kello</span>→<span>Askel 5K</span>→<span>Valmentaja ehdottaa</span>→<span>Sinä hyväksyt</span>→<span>intervals.icu</span>→<span>Kello</span></div>
+    <div class="flow"><span>Garmin-kello</span>→<span>Sports</span>→<span>Valmentaja ehdottaa</span>→<span>Sinä hyväksyt</span>→<span>intervals.icu</span>→<span>Kello</span></div>
   </div>`;
 }
 function propHtml(p: Proposal, i: number) {
@@ -327,12 +329,15 @@ function accountCard() {
 function renderPrefs() {
   const el = $("v-prefs")!, st = settings(), today = todayIso();
   const pick = (name: string, sel: number[], cls?: string) => `<div class="wkpick ${cls || ""}">${WD.map((d, i) => `<span><input type="checkbox" id="${name}-${i}" name="${name}" value="${i}"${sel.includes(i) ? " checked" : ""}><label for="${name}-${i}">${d}</label></span>`).join("")}</div>`;
-  const n = st.runDays.length;
+  const n = st.runDays.length, prog = program(), counts = runCountsOf(prog);
   const active = rules().filter((r) => !r.until || r.until >= today);
   el.innerHTML = `<div class="view-head"><div><span class="label">Ohjelman rytmi</span><h2>Asetukset</h2></div></div>
   <form class="card" id="prefs-form">
+    <div class="field"><span class="lbl">Ohjelma</span>
+      <div class="progpick">${PROGRAMS.map((p) => `<span><input type="radio" id="p-prog-${p.id}" name="p-prog" value="${p.id}"${p.id === prog.id ? " checked" : ""}><label for="p-prog-${p.id}"><b>${esc(p.name)}</b><span class="small muted">${esc(p.description)}</span></label></span>`).join("")}</div>
+      <span class="muted small">Ohjelman vaihto aloittaa uuden ohjelman valitulta aloitusviikolta. Aiemmat kirjaukset säilyvät.</span></div>
     <div class="field"><span class="lbl">Juoksukerrat viikossa</span>
-      <div class="seg" style="--n:2"><span><input type="radio" id="p-n2" name="p-n" value="2"${n === 2 ? " checked" : ""}><label for="p-n2">2 kertaa</label></span><span><input type="radio" id="p-n3" name="p-n" value="3"${n === 3 ? " checked" : ""}><label for="p-n3">3 kertaa</label></span></div>
+      <div class="seg" style="--n:${counts.length}">${counts.map((c) => `<span><input type="radio" id="p-n${c}" name="p-n" value="${c}"${n === c ? " checked" : ""}><label for="p-n${c}">${c} kertaa</label></span>`).join("")}</div>
       <span class="muted small">Kaksi kertaa sopii hyvin taekwondon rinnalle. Kolme kertaa etenee samassa ajassa tasaisemmin.</span></div>
     <div class="field"><label for="p-start">Ohjelman aloitusviikko</label><input type="date" id="p-start" value="${st.startDate}"></div>
     <div class="field"><span class="lbl">Juoksupäivät</span>${pick("p-run", st.runDays)}</div>
@@ -509,7 +514,7 @@ async function onLogSubmit(ev: SubmitEvent) {
   if (km && st === "done") entry.km = +km.replace(",", "."); else delete entry.km;
   const lab = inputVal("f-label").trim();
   if (kind === "other" && lab) entry.label = lab;
-  if (sh.key) entry.sessionKey = sh.key;
+  if (sh.key) { entry.sessionKey = sh.key; entry.programId = programIdOf(settings()); }
   if (sh.ref) entry.ruleRef = sh.ref;
   if ($<HTMLInputElement>("f-rep")?.checked) {
     const rule: Rule = { id: uid("r"), kind, weekday: wd(date), minutes, from: date };
@@ -538,7 +543,7 @@ function exportData() {
   const data: StoreData & { exportedAt: string } = { settings: S.settings, logs: S.logs, coach: S.coach, exportedAt: new Date().toISOString() };
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
-  a.download = `askel5k-${iso(new Date())}.json`;
+  a.download = `sports-${iso(new Date())}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
@@ -552,7 +557,7 @@ async function importData(file: File) {
     if (st) S.settings = st;
     toast(`Tuotu ${logs.length} kirjausta${st ? " ja asetukset" : ""}`);
   } catch {
-    toast("Tiedostoa ei voitu lukea. Valitse Askel 5K:sta viety JSON.");
+    toast("Tiedostoa ei voitu lukea. Valitse Sportsista (tai Askel 5K:sta) viety JSON.");
   }
   render();
 }
@@ -676,8 +681,10 @@ document.addEventListener("submit", async (ev) => {
   if (runDays.length !== n) { err.textContent = `Valitse ${n} juoksupäivää (nyt ${runDays.length}).`; err.hidden = false; return; }
   const start = inputVal("p-start");
   if (!start) { err.textContent = "Valitse aloituspäivä."; err.hidden = false; return; }
-  const changed = n !== settings().runDays.length;
-  await saveSettings({ startDate: mondayOf(start), runDays, tkdMin: +inputVal("p-tkdmin") || 75, ...(changed ? { moves: {}, skips: {}, repeats: [], overrides: {} } : {}) });
+  const programId = document.querySelector<HTMLInputElement>('input[name="p-prog"]:checked')?.value || programIdOf(settings());
+  // Ohjelman tai juoksukertojen vaihto muuttaa juoksujen avaimet → siirrot, ohitukset ja muokkaukset nollataan.
+  const changed = n !== settings().runDays.length || programId !== programIdOf(settings());
+  await saveSettings({ programId, startDate: mondayOf(start), runDays, tkdMin: +inputVal("p-tkdmin") || 75, ...(changed ? { moves: {}, skips: {}, repeats: [], overrides: {}, dismissed: [] } : {}) });
   toast("Asetukset tallennettu"); render();
 });
 

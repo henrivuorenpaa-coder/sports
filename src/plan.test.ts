@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { PLAN2, PLAN3, fmt, kindOf, planFor, segs, summary, totals } from "./plan.ts";
+import { fmt, kindOf, segs, summary, totals } from "./plan.ts";
+import { PROGRAMS, planFor, programOf } from "./programs/index.ts";
+import { PLAN2, PLAN3 } from "./programs/run-0-5k.ts";
 import type { Block } from "./types.ts";
 
 describe("ohjelmat", () => {
@@ -11,12 +13,23 @@ describe("ohjelmat", () => {
   });
 
   it("planFor valitsee ohjelman juoksupäivien määrästä", () => {
-    expect(planFor([2, 5])).toBe(PLAN2);
-    expect(planFor([0, 2, 5])).toBe(PLAN3);
+    expect(planFor({ runDays: [2, 5] })).toBe(PLAN2);
+    expect(planFor({ runDays: [0, 2, 5] })).toBe(PLAN3);
+    expect(planFor({ runDays: [0, 2, 4, 6] })).toBe(PLAN3); // ei 4 kerran versiota → lähin pienempi
+  });
+
+  it("tuntematon tai puuttuva programId → oletusohjelma", () => {
+    expect(programOf({}).id).toBe(PROGRAMS[0].id);
+    expect(programOf({ programId: "ei-ole" }).id).toBe(PROGRAMS[0].id);
+  });
+
+  it("ohjelmien id:t ovat yksilöllisiä ja jokaisella on versio", () => {
+    expect(new Set(PROGRAMS.map((p) => p.id)).size).toBe(PROGRAMS.length);
+    PROGRAMS.forEach((p) => expect(Object.keys(p.variants).length).toBeGreaterThan(0));
   });
 
   it("pisin juoksupätkä ei koskaan lyhene viikosta toiseen", () => {
-    for (const P of [PLAN2, PLAN3]) {
+    for (const P of PROGRAMS.flatMap((p) => Object.values(p.variants))) {
       const longest = P.map((w) => Math.max(...w.s.map((b) => totals(b).longest)));
       for (let i = 1; i < longest.length; i++) expect(longest[i]).toBeGreaterThanOrEqual(longest[i - 1]);
     }
