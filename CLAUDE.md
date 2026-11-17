@@ -51,7 +51,7 @@ selaimen tietojen siirtoa tilille. Asetuksissa on JSON-vienti/-tuonti (myös art
 4. Datan siirto artefaktista: luetaan artefaktin db Claude Codessa ArtifactData-työkalulla → JSON → Asetukset → Tuo tiedot
 5. Vercel `/api`-funktiot (avaimet ympäristömuuttujina, Firestoreen Admin SDK:lla), yksi kerrallaan:
    - ✅ `api/coach.ts` – Claude API (prompt `coachPrompt()` tehdään selaimessa). Tarkistaa Firebase ID -tokenin
-     (firebase-admin, pelkkä projectId) ja `COACH_ALLOWED_EMAILS`. Env: `ANTHROPIC_API_KEY`, `ALLOWED_EMAILS` (tai vanha `COACH_ALLOWED_EMAILS`).
+     (jose + Googlen julkiset avaimet; firebase-admin ei toimi Vercelissä (ERR_REQUIRE_ESM)) ja `COACH_ALLOWED_EMAILS`. Env: `ANTHROPIC_API_KEY`, `ALLOWED_EMAILS` (tai vanha `COACH_ALLOWED_EMAILS`).
      Myöhemmin: viikkokatsaus cronilla sunnuntaisin (vaatii palvelutilin Firestore-lukuun).
    - ✅ `api/garmin.ts` – Garmin Connect Personal API (vain lukeva). Avain → 24 h JWT (`POST /personalapitoken-service/…/token`,
      `Authorization: ApiKey …`, vastaus pelkkä token), data `Authorization: Bearer …`. Polut: github.com/garmin/connect-personal-api-python.

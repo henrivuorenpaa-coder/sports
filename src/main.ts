@@ -72,7 +72,8 @@ const COACH_ERRORS: Record<string, string> = {
   rate_limited: "Claudea on käytetty juuri paljon. Yritä hetken päästä uudelleen.",
   invalid_json: "Valmentajan vastausta ei saatu luettua. Yritä uudelleen.",
   unauthenticated: "Kirjaudu sisään käyttääksesi valmentajaa.",
-  not_allowed: "Tunnuksellasi ei ole valmentajan käyttöoikeutta (COACH_ALLOWED_EMAILS).",
+  not_allowed: "Tunnuksellasi ei ole valmentajan käyttöoikeutta (ALLOWED_EMAILS).",
+  server_misconfigured: "Palvelimelta puuttuu VITE_FIREBASE_PROJECT_ID.",
   bad_api_key: "Claude API -avain puuttuu tai on virheellinen (ANTHROPIC_API_KEY).",
   refusal: "Valmentaja ei voinut vastata tähän. Kokeile muotoilla kysymys toisin.",
 };
@@ -620,6 +621,7 @@ const GARMIN_ERRORS: Record<string, string> = {
   garmin_key: "Garmin hylkäsi avaimen. Tarkista, ettei Personal API -avain ole vanhentunut.",
   not_allowed: "Tunnuksellasi ei ole käyttöoikeutta (ALLOWED_EMAILS).",
   unauthenticated: "Palvelin ei hyväksynyt kirjautumista. Tarkista, että VITE_FIREBASE_PROJECT_ID on Vercelin ympäristömuuttujissa.",
+  server_misconfigured: "Palvelimelta puuttuu VITE_FIREBASE_PROJECT_ID.",
   garmin_error: "Garminin palvelu ei vastannut. Yritä hetken päästä uudelleen.",
 };
 /** Hakee Garmin-datan /api/garmin-funktiosta ja tallentaa sen. `manual` näyttää myös virheet ja onnistumisen. */
