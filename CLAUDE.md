@@ -49,7 +49,9 @@ selaimen tietojen siirtoa tilille. Asetuksissa on JSON-vienti/-tuonti (myös art
 3. Vercel: repo kytketään, `VITE_FIREBASE_*` ympäristömuuttujiksi, Vercel-domain Firebase Authin sallittuihin domaineihin
 4. Datan siirto artefaktista: luetaan artefaktin db Claude Codessa ArtifactData-työkalulla → JSON → Asetukset → Tuo tiedot
 5. Vercel `/api`-funktiot (avaimet ympäristömuuttujina, Firestoreen Admin SDK:lla), yksi kerrallaan:
-   - `coach` – Claude API (prompt `coachPrompt()`), kytketään `main.ts`:n `askCoach`-funktioon; viikkokatsaus cronilla sunnuntaisin
+   - ✅ `api/coach.ts` – Claude API (prompt `coachPrompt()` tehdään selaimessa). Tarkistaa Firebase ID -tokenin
+     (firebase-admin, pelkkä projectId) ja `COACH_ALLOWED_EMAILS`. Env: `ANTHROPIC_API_KEY`, `COACH_ALLOWED_EMAILS`.
+     Myöhemmin: viikkokatsaus cronilla sunnuntaisin (vaatii palvelutilin Firestore-lukuun).
    - `garmin-sync` – Garmin Connect Personal API (lukeva; avain → 24 h access token), Vercel Cron kerran päivässä.
      Tarkista endpointit Swaggerista: https://developer.garmin.com/gc-developer-program/personal/swagger-docs/
    - `intervals-push` – hyväksytyt/muuttuneet treenit intervals.icu:n kalenteriin → Garmin-kello
