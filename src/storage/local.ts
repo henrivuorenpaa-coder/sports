@@ -1,4 +1,4 @@
-import type { CoachState, LogEntry, Settings } from "../types.ts";
+import type { CoachState, GarminData, LogEntry, Settings } from "../types.ts";
 import type { Store, StoreData } from "./store.ts";
 
 // Sama avain kuin Askel 5K -artefaktissa, jotta selaimeen tallennetut tiedot säilyvät.
@@ -50,6 +50,8 @@ export function localStore(): Store {
       data.coach = c;
       try { localStorage.setItem(LS + ".coach", JSON.stringify(c)); } catch { /* ohitetaan */ }
     },
+    // Garmin-synkronointi vaatii kirjautumisen, joten paikallinen tila ei tallenna sitä.
+    async saveGarmin(_g: GarminData) {},
     async importAll(d: StoreData) {
       data = { ...d };
       persist();

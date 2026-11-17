@@ -29,6 +29,7 @@ Vite + TypeScript (vanilla, ei UI-kirjastoa), PWA (`vite-plugin-pwa`), Firebase 
 
 Tietomalli (sama artefaktissa ja Firestoressa):
 - `settings/main` – `programId` (puuttuu → oletusohjelma), aloituspäivä, juoksupäivät, `recurring`, `moves`, `skips`, `overrides`, `repeats`, `dismissed`, `rSkips`, `tkdMin`
+- `garmin/…` – Garmin-synkronoinnin tulos (ks. alla)
 - `log/<id>` – `{kind: run|tkd|other, date, minutes, rpe?, km?, note, status: done|planned, sessionKey?, programId?, ruleRef?, label?}`
   – ohjelman juoksu tunnistetaan parista `sessionKey` + `programId` (puuttuva `programId` = oletusohjelma)
 - `coach/last` – viimeisin valmentajan analyysi ja ehdotukset
@@ -50,10 +51,14 @@ selaimen tietojen siirtoa tilille. Asetuksissa on JSON-vienti/-tuonti (myös art
 4. Datan siirto artefaktista: luetaan artefaktin db Claude Codessa ArtifactData-työkalulla → JSON → Asetukset → Tuo tiedot
 5. Vercel `/api`-funktiot (avaimet ympäristömuuttujina, Firestoreen Admin SDK:lla), yksi kerrallaan:
    - ✅ `api/coach.ts` – Claude API (prompt `coachPrompt()` tehdään selaimessa). Tarkistaa Firebase ID -tokenin
-     (firebase-admin, pelkkä projectId) ja `COACH_ALLOWED_EMAILS`. Env: `ANTHROPIC_API_KEY`, `COACH_ALLOWED_EMAILS`.
+     (firebase-admin, pelkkä projectId) ja `COACH_ALLOWED_EMAILS`. Env: `ANTHROPIC_API_KEY`, `ALLOWED_EMAILS` (tai vanha `COACH_ALLOWED_EMAILS`).
      Myöhemmin: viikkokatsaus cronilla sunnuntaisin (vaatii palvelutilin Firestore-lukuun).
-   - `garmin-sync` – Garmin Connect Personal API (lukeva; avain → 24 h access token), Vercel Cron kerran päivässä.
-     Tarkista endpointit Swaggerista: https://developer.garmin.com/gc-developer-program/personal/swagger-docs/
+   - ✅ `api/garmin.ts` – Garmin Connect Personal API (vain lukeva). Avain → 24 h JWT (`POST /personalapitoken-service/…/token`,
+     `Authorization: ApiKey …`, vastaus pelkkä token), data `Authorization: Bearer …`. Polut: github.com/garmin/connect-personal-api-python.
+     Muunnokset `api/_lib/garmin-lib.ts`. Sovellus kutsuu kirjautuneena (automaattisesti, jos edellisestä hausta > 3 h) ja tallentaa
+     Firestoreen `garmin/meta`, `garmin/day-<pvm>`, `garmin/act-<id>` – palvelin ei tarvitse palvelutiliä. Env: `GARMIN_PERSONAL_API_KEY`.
+     Client-logiikka `src/garmin.ts`: aktiviteetin laji, ohjelman juoksun osuma (±3 pv), palautumisvinkit, valmentajan prompt.
+     Kirjaus Garmin-aktiviteetista tallentaa `garminId`:n.
    - `intervals-push` – hyväksytyt/muuttuneet treenit intervals.icu:n kalenteriin → Garmin-kello
 
 Periaate: valmentaja ehdottaa, käyttäjä hyväksyy – ohjelma ei muutu automaattisesti.

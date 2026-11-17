@@ -70,6 +70,8 @@ export interface LogEntry {
   /** Ohjelma, jonka juoksuun `sessionKey` viittaa. Puuttuu vanhasta datasta → oletusohjelma. */
   programId?: string;
   ruleRef?: string;
+  /** Garmin-aktiviteetti, josta kirjaus tehtiin. */
+  garminId?: string;
   label?: string;
   createdAt?: number;
 }
@@ -116,3 +118,48 @@ export interface CoachState {
 }
 
 export type NoteKind = "tkd" | "warn" | "ok";
+
+/* ---------- Garmin (api/garmin.ts → Firestore `garmin/…`) ---------- */
+export interface GarminActivity {
+  id: string;
+  date: string;
+  /** Alkamisaika "HH:MM" paikallista aikaa. */
+  time: string;
+  /** Garminin typeKey, esim. running, treadmill_running, mixed_martial_arts. */
+  type: string;
+  name: string;
+  minutes: number;
+  km?: number;
+  avgHr?: number;
+  maxHr?: number;
+  /** Aerobinen harjoitusvaikutus 0–5. */
+  te?: number;
+}
+
+export interface GarminDay {
+  date: string;
+  restingHr?: number;
+  /** Viime yön HRV-keskiarvo (ms), viikon keskiarvo, status ja oma normaalihaarukka [ala, ylä]. */
+  hrv?: number;
+  hrvWeek?: number;
+  hrvStatus?: string;
+  hrvBase?: [number, number];
+  sleepH?: number;
+  sleepScore?: number;
+  bbMax?: number;
+  stress?: number;
+  vo2?: number;
+}
+
+export interface GarminZones {
+  /** Sykealueiden 1–5 alarajat. */
+  floors: number[];
+  max?: number;
+}
+
+export interface GarminData {
+  days: GarminDay[];
+  activities: GarminActivity[];
+  zones: GarminZones | null;
+  syncedAt: string | null;
+}

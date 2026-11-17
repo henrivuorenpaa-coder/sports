@@ -9,21 +9,24 @@ import {
   tkdDoneOn, tkdPlannedOn, virtualsOn,
 } from "./schedule.ts";
 import { cleanProposals, coachPrompt } from "./coach.ts";
+import { activityKind, activityLabel, latestDay, loggedGarminIds, matchSession, recoveryNotes, restingBaseline } from "./garmin.ts";
 import { PROGRAMS, planFor, programIdOf, programOf, runCountsOf } from "./programs/index.ts";
 import { firebaseSetup, getFirebaseDb, getIdToken, resetPassword, signInEmail, signOutUser, signUpEmail, watchUser } from "./lib/firebase.ts";
 import { authErrorText } from "./lib/auth-errors.ts";
 import { clearLocal, hasLocalData, localStore, readLocal } from "./storage/local.ts";
 import { firestoreStore } from "./storage/firestore.ts";
-import type { Store, StoreData } from "./storage/store.ts";
-import type { Block, CoachState, Ctx, Kind, LogEntry, Proposal, Rule, Settings } from "./types.ts";
+import { EMPTY_GARMIN, type Store, type StoreData } from "./storage/store.ts";
+import type { Block, CoachState, Ctx, GarminData, Kind, LogEntry, Proposal, Rule, Settings } from "./types.ts";
 
 registerSW({ immediate: true });
 
 /* ---------- tila ---------- */
 type View = "today" | "calendar" | "plan" | "coach" | "prefs";
 type SheetState = {
-  kind: "session" | "event" | "virt" | "form" | "login";
+  kind: "session" | "event" | "virt" | "form" | "login" | "garmin";
   signup?: boolean;
+  /** Garmin-aktiviteetista esitäytetty kirjaus. */
+  garminId?: string; preMin?: number; preKm?: number; preNote?: string; preLabel?: string;
   key?: string; id?: string; ref?: string; type?: Kind; date?: string;
   lock?: boolean; edit?: boolean; doneOnly?: boolean;
 };
@@ -44,6 +47,9 @@ const S = {
   offerMigrate: false,
   coachQ: "",
   coachBusy: false,
+  garmin: EMPTY_GARMIN as GarminData,
+  garminBusy: false,
+  garminTried: false,
 };
 
 /**
@@ -138,7 +144,7 @@ function renderToday() {
       ${barHtml(next.blocks, "big")}
       </div><div class="hero-body">
       <ol class="steps">${steps(next.blocks).map((s) => `<li class="${s.r ? "r" : ""}"><span>${esc(s.t)}</span></li>`).join("")}</ol>
-      ${notesFor(c, next, today).map(noteHtml).join("")}
+      ${[...(isToday ? recoveryNotes(S.garmin, today) : []), ...notesFor(c, next, today)].map(noteHtml).join("")}
       <div class="btnrow"><button class="btn primary" data-act="complete" data-key="${next.key}">Merkitse tehdyksi</button><button class="btn" data-act="session" data-key="${next.key}">Siirrä tai ohita</button></div></div>
     </article>`;
   } else if (curSlot >= 0) {
@@ -155,7 +161,7 @@ function renderToday() {
 /* ---------- Kalenteri ---------- */
 function renderCalendar() {
   const el = $("v-calendar")!, today = todayIso(), st = settings(), c = ctx(), map = slotMap(st), P = plan();
-  const sch = schedule(c);
+  const sch = schedule(c), logged = loggedGarminIds(S.logs);
   const first = mondayOf(st.startDate < today ? st.startDate : today);
   const progEnd = addDays(st.startDate, map.length * 7 - 1);
   const lastDate = [progEnd, today, ...sch.map((s) => s.date), ...S.logs.map((l) => l.date)].reduce((a, b) => (b > a ? b : a));
@@ -184,6 +190,8 @@ function renderCalendar() {
         const done = isDone(l);
         items += `<button class="item ${l.kind}${done ? "" : " plan"}" data-act="event" data-id="${esc(l.id)}"><span class="st"></span><span class="bd"><span class="it">${done ? '<span class="mark ok">✓</span>' : ""}<span>${esc(titleOf(l))}</span></span><span class="is">${l.minutes || "–"} min${done && l.rpe ? ` · RPE ${l.rpe}` : done ? "" : " · suunniteltu"}</span></span></button>`;
       }
+      for (const a of S.garmin.activities.filter((a) => a.date === d && !logged.has(a.id)))
+        items += `<button class="item ${activityKind(a.type)}" data-act="garmin" data-id="${esc(a.id)}"><span class="st"></span><span class="bd"><span class="it"><span class="mark gm">G</span><span>${esc(activityLabel(a))}</span></span><span class="is">${a.minutes} min${a.km ? ` · ${String(a.km).replace(".", ",")} km` : ""}${a.avgHr ? ` · ${a.avgHr} bpm` : ""} · kirjaamatta</span></span></button>`;
       for (const v of virtualsOn(c, d)) items += `<button class="item ${v.kind} plan" data-act="virt" data-ref="${esc(v.ref)}"><span class="st"></span><span class="bd"><span class="it"><span>${esc(titleOf(v))}</span></span><span class="is">${v.minutes} min · ${d < today ? "kirjaamatta" : "toistuva"}</span></span></button>`;
       const addBtn = `<button class="add" data-act="add" data-date="${d}" aria-label="Lisää treeni ${esc(fiLong(d))}"><b>+</b><span>Lisää</span></button>`;
       h += `<div class="cal-day${d === today ? " is-today" : ""}"><div class="dl"><span class="d">${WD[i]}</span><span class="n num">${parse(d).getDate()}</span></div><div class="cal-items">${items}</div>${addBtn}</div>`;
@@ -270,9 +278,30 @@ function renderCoach() {
     <div class="chart" style="--n:${weeks.length}">${weeks.map((w) => `<div class="col" title="Juoksu ${w.r} min, taekwondo ja muu ${w.k} min, suunniteltu ${w.p} min"><span class="p" style="height:${((w.p / max) * 100).toFixed(1)}%"></span><span class="r" style="height:${((w.r / max) * 100).toFixed(1)}%"></span><span class="k" style="height:${((w.k / max) * 100).toFixed(1)}%"></span></div>`).join("")}</div>
     <div class="xlab num" style="--n:${weeks.length}">${weeks.map((_, i) => `<span>vk ${i + 1}</span>`).join("")}</div>
   </div>
-  <div class="card"><div class="view-head"><span class="label">Garmin-data valmentajalle</span><span class="chip up">Ei yhdistetty</span></div>
-    <p class="small muted" style="max-width:65ch">Kun Garmin Personal API yhdistetään, nämä tiedot tulevat sovellukseen automaattisesti ja valmentaja käyttää niitä analyysissa. Muutokset ohjelmaan tehdään edelleen vain sinun hyväksynnälläsi.</p>
-    <div>${GARMIN.map(([t, d]) => `<div class="gm"><b>${t}</b><p>${d}</p><span class="v">–</span></div>`).join("")}</div>
+  ${garminCard(today)}`;
+}
+function garminCard(today: string) {
+  const g = S.garmin, d = latestDay(g, today), base = d ? restingBaseline(g, d.date) : undefined;
+  const vo2 = [...g.days].reverse().find((x) => x.vo2)?.vo2;
+  const vals: Record<string, string> = {
+    Leposyke: d?.restingHr ? `${d.restingHr}` : "–",
+    "Yön HRV": d?.hrv ? `${d.hrv} ms` : "–",
+    "Uni ja Body Battery": d?.sleepH ? `${String(d.sleepH).replace(".", ",")} h${d.bbMax ? ` · ${d.bbMax}` : ""}` : "–",
+    VO2max: vo2 ? String(vo2).replace(".", ",") : "–",
+    Sykealueet: g.zones ? `Z2 ${g.zones.floors[1]}–${g.zones.floors[2] - 1}` : "–",
+    Juoksut: String(g.activities.filter((a) => activityKind(a.type) === "run").length),
+  };
+  const sub: Record<string, string> = {
+    Leposyke: base ? `7 pv keskiarvo ${Math.round(base)}.` : "",
+    "Yön HRV": d?.hrvBase ? `Normaali ${d.hrvBase[0]}–${d.hrvBase[1]} ms${d.hrvStatus ? ` · ${d.hrvStatus.toLowerCase()}` : ""}.` : "",
+  };
+  const chip = S.garminBusy ? `<span class="chip up">Haetaan…</span>`
+    : g.syncedAt ? `<span class="chip done">Päivitetty ${fi(g.syncedAt.slice(0, 10))} ${new Date(g.syncedAt).toTimeString().slice(0, 5)}</span>`
+    : `<span class="chip up">Ei yhdistetty</span>`;
+  return `<div class="card"><div class="view-head"><span class="label">Garmin-data valmentajalle</span>${chip}</div>
+    <p class="small muted" style="max-width:65ch">${g.syncedAt ? "Tiedot haetaan Garmin Connectista, kun avaat sovelluksen. Valmentaja käyttää niitä analyysissa, ja palautumisvinkit näkyvät päivän treenissä." : "Kun Garmin on yhdistetty, tiedot tulevat sovellukseen automaattisesti ja valmentaja käyttää niitä analyysissa."} Muutokset ohjelmaan tehdään edelleen vain sinun hyväksynnälläsi.</p>
+    <div>${GARMIN.map(([t, desc]) => `<div class="gm"><b>${t}</b><p>${esc(sub[t] || desc)}</p><span class="v num">${esc(vals[t] ?? "–")}</span></div>`).join("")}</div>
+    ${S.user ? `<div class="btnrow"><button class="btn small" data-act="garmin-sync"${S.garminBusy ? " disabled" : ""}>Päivitä Garmin-data</button></div>` : ""}
     <div class="flow"><span>Garmin-kello</span>→<span>Sports</span>→<span>Valmentaja ehdottaa</span>→<span>Sinä hyväksyt</span>→<span>intervals.icu</span>→<span>Kello</span></div>
   </div>`;
 }
@@ -296,7 +325,7 @@ async function runCoach() {
   coachCtl = new AbortController();
   S.coachBusy = true; render();
   try {
-    const res = (await askCoach(coachPrompt(ctx(), todayIso(), q), coachCtl.signal)) as { analysis?: unknown; proposals?: unknown } | null;
+    const res = (await askCoach(coachPrompt(ctx(), todayIso(), q, S.garmin), coachCtl.signal)) as { analysis?: unknown; proposals?: unknown } | null;
     const analysis = String(res?.analysis || "").slice(0, 4000);
     if (!analysis) throw { code: "invalid_json" };
     S.coach = { analysis, proposals: cleanProposals(ctx(), res?.proposals, todayIso()), at: new Date().toISOString(), q };
@@ -430,6 +459,21 @@ function renderSheet(): void {
       <hr class="sep"><span class="label">Kaikki kerrat</span>
       <div class="inl"><div class="field"><label for="r-min">Kesto jatkossa (min)</label><input type="number" id="r-min" min="5" max="300" step="5" value="${v.minutes}"></div><button class="btn" data-act="rule-min" data-id="${esc(v.id)}">Tallenna</button></div>
       <div class="btnrow"><button class="btn small ${S.pendingDelete === v.id ? "danger" : "ghost"}" data-act="rule-end" data-id="${esc(v.id)}" data-from="${d}">${S.pendingDelete === v.id ? `Vahvista: lopeta ${fi(d)} alkaen` : "Lopeta toisto tästä eteenpäin"}</button></div>`;
+  } else if (sh.kind === "garmin") {
+    const a = S.garmin.activities.find((x) => x.id === sh.id);
+    if (!a) return closeSheet();
+    const kind = activityKind(a.type), s = matchSession(c, a);
+    const vt = kind === "tkd" ? virtualsOn(c, a.date).find((v) => v.kind === "tkd") : undefined;
+    const pre = `data-gid="${esc(a.id)}"`;
+    body = head(`Garmin · ${esc(fiLong(a.date))} klo ${esc(a.time)}`, activityLabel(a)) + `
+      <p class="num">${a.minutes} min${a.km ? ` · ${String(a.km).replace(".", ",")} km` : ""}${a.avgHr ? ` · keskisyke ${a.avgHr}` : ""}${a.maxHr ? ` (max ${a.maxHr})` : ""}${a.te ? ` · aerobinen vaikutus ${String(a.te).replace(".", ",")}` : ""}</p>
+      ${a.name ? `<p class="muted">${esc(a.name)}</p>` : ""}
+      <p class="muted small">Kirjaa aktiviteetti, niin se näkyy ohjelmassa ja valmentaja huomioi sen. Kesto ja matka täytetään valmiiksi – lisää rasittavuus.</p>
+      <div class="btnrow">
+        ${s ? `<button class="btn primary" data-act="garmin-log" ${pre} data-key="${s.key}">Kirjaa ohjelman juoksuksi (${esc(fiLong(s.date))})</button>` : ""}
+        ${vt ? `<button class="btn tkd" data-act="garmin-log" ${pre} data-kind="tkd" data-ref="${esc(vt.ref)}">Kirjaa taekwondoksi</button>`
+          : `<button class="btn ${kind === "tkd" ? "tkd" : s ? "" : "primary"}" data-act="garmin-log" ${pre} data-kind="${kind}">Kirjaa: ${esc(KIND[kind])}</button>`}
+      </div>`;
   } else if (sh.kind === "login") {
     const up = !!sh.signup;
     body = head("Tili", up ? "Luo tunnus" : "Kirjaudu") + `
@@ -448,7 +492,7 @@ function renderSheet(): void {
     const kind: Kind = ev ? ev.kind : sh.type || "tkd";
     const edit = !!sh.edit;
     const date = sh.date || (ev ? ev.date : s ? (s.date < today ? s.date : today) : today);
-    const mins = ev ? ev.minutes : v ? v.minutes : kind === "tkd" ? settings().tkdMin : s ? totals(s.blocks).total : 30;
+    const mins = sh.preMin ? sh.preMin : ev ? ev.minutes : v ? v.minutes : kind === "tkd" ? settings().tkdMin : s ? totals(s.blocks).total : 30;
     const rpe = ev?.rpe ? ev.rpe : kind === "tkd" ? 6 : 4;
     const locked = !!(s || ev || sh.lock);
     const doneOnly = !!(s || (ev && !edit)); // tehdyksi merkitseminen: ei tulevaa päivää
@@ -457,16 +501,16 @@ function renderSheet(): void {
     body = head(s ? `Viikko ${s.slot + 1}` : esc(fiLong(date)), title) + `
     <form id="log-form" class="view" style="gap:14px">
       ${locked ? "" : `<div class="seg" style="--n:3" role="radiogroup" aria-label="Laji">${(["tkd", "run", "other"] as Kind[]).map((k) => `<span><input type="radio" id="f-k-${k}" name="f-kind" value="${k}"${k === kind ? " checked" : ""}><label for="f-k-${k}">${KIND[k]}</label></span>`).join("")}</div>`}
-      <div class="field" id="f-label-w"${kind === "other" ? "" : " hidden"}><label for="f-label">Laji</label><input type="text" id="f-label" placeholder="esim. kuntosali, pyöräily" maxlength="40" value="${esc(ev?.label || v?.label || "")}"></div>
+      <div class="field" id="f-label-w"${kind === "other" ? "" : " hidden"}><label for="f-label">Laji</label><input type="text" id="f-label" placeholder="esim. kuntosali, pyöräily" maxlength="40" value="${esc(ev?.label || v?.label || sh.preLabel || "")}"></div>
       <div class="grid2">
         <div class="field"><label for="f-date">Päivä</label><input type="date" id="f-date" value="${date}" ${doneOnly ? `max="${today}"` : ""} required></div>
         <div class="field"><label for="f-min">Kesto (min)</label><input type="number" id="f-min" min="1" max="600" value="${mins}" required></div>
       </div>
       <p class="muted small" id="f-plan-note" hidden>Tuleva päivä: treeni tallentuu kalenteriin suunniteltuna. Rasittavuuden kirjaat, kun merkitset sen tehdyksi.</p>
-      <div class="field" id="f-km-w"${kind === "run" ? "" : " hidden"}><label for="f-km">Matka (km, valinnainen)</label><input type="number" id="f-km" min="0" max="100" step="0.01" placeholder="esim. 3,2" value="${ev?.km ? ev.km : ""}"></div>
+      <div class="field" id="f-km-w"${kind === "run" ? "" : " hidden"}><label for="f-km">Matka (km, valinnainen)</label><input type="number" id="f-km" min="0" max="100" step="0.01" placeholder="esim. 3,2" value="${ev?.km ? ev.km : sh.preKm ?? ""}"></div>
       <div class="field" id="f-rpe-w"><div class="rpe-out"><label for="f-rpe">Rasittavuus (RPE)</label><span><b class="num" id="f-rpe-v">${rpe}</b>/10 <span class="muted" id="f-rpe-t">${rpeText(rpe)}</span></span></div>
         <input type="range" id="f-rpe" min="1" max="10" step="1" value="${rpe}"></div>
-      <div class="field"><label for="f-note">Muistiinpano</label><textarea id="f-note" maxlength="300" placeholder="${kind === "tkd" ? "esim. sparrausta, potkutekniikkaa, pohkeet jumissa" : "esim. pohkeet jäykät, hyvä fiilis"}">${esc(ev?.note || "")}</textarea></div>
+      <div class="field"><label for="f-note">Muistiinpano</label><textarea id="f-note" maxlength="300" placeholder="${kind === "tkd" ? "esim. sparrausta, potkutekniikkaa, pohkeet jumissa" : "esim. pohkeet jäykät, hyvä fiilis"}">${esc(ev?.note || sh.preNote || "")}</textarea></div>
       ${!locked ? `<label class="check" for="f-rep"><input type="checkbox" id="f-rep"> <span id="f-rep-t">Toista joka viikko</span></label>` : ""}
       <p class="err" id="f-err" hidden></p>
       <div class="btnrow"><button class="btn primary" type="submit" id="f-submit">Tallenna</button></div>
@@ -547,6 +591,7 @@ async function onLogSubmit(ev: SubmitEvent) {
   if (kind === "other" && lab) entry.label = lab;
   if (sh.key) { entry.sessionKey = sh.key; entry.programId = programIdOf(settings()); }
   if (sh.ref) entry.ruleRef = sh.ref;
+  if (sh.garminId) entry.garminId = sh.garminId;
   if ($<HTMLInputElement>("f-rep")?.checked) {
     const rule: Rule = { id: uid("r"), kind, weekday: wd(date), minutes, from: date };
     if (entry.label) rule.label = entry.label;
@@ -567,6 +612,34 @@ function toast(msg: string) {
   r.innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`;
   clearTimeout(toastT);
   toastT = setTimeout(() => { r.innerHTML = ""; }, 2600);
+}
+
+/* ---------- Garmin ---------- */
+const GARMIN_ERRORS: Record<string, string> = {
+  garmin_not_configured: "Garmin-avain puuttuu palvelimelta (GARMIN_PERSONAL_API_KEY).",
+  garmin_key: "Garmin hylkäsi avaimen. Tarkista, ettei Personal API -avain ole vanhentunut.",
+  not_allowed: "Tunnuksellasi ei ole käyttöoikeutta (ALLOWED_EMAILS).",
+};
+/** Hakee Garmin-datan /api/garmin-funktiosta ja tallentaa sen. `manual` näyttää myös virheet ja onnistumisen. */
+async function syncGarmin(manual = false) {
+  if (!S.user || S.garminBusy || S.store.mode !== "cloud") return;
+  S.garminBusy = true; S.garminTried = true; render();
+  try {
+    const token = await getIdToken();
+    const res = await fetch("/api/garmin", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ days: S.garmin.syncedAt ? 14 : 45 }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw { code: body.code };
+    await S.store.saveGarmin(body as GarminData);
+    if (manual) toast("Garmin-data päivitetty");
+  } catch (e) {
+    const code = (e as { code?: string })?.code ?? "";
+    // Automaattinen haku ei häiritse, jos Garminia ei ole otettu käyttöön.
+    if (manual || (code && code !== "garmin_not_configured")) toast(GARMIN_ERRORS[code] || "Garmin-datan haku epäonnistui.");
+  } finally { S.garminBusy = false; render(); }
 }
 
 /* ---------- tuonti ja vienti ---------- */
@@ -703,6 +776,15 @@ document.addEventListener("click", async (ev) => {
   if (act === "migrate") return migrateLocal();
   if (act === "migrate-no") { S.offerMigrate = false; return render(); }
   if (act === "export") return exportData();
+  if (act === "garmin") return openSheet("garmin", { id: ds.id });
+  if (act === "garmin-sync") return syncGarmin(true);
+  if (act === "garmin-log") {
+    const a = S.garmin.activities.find((x) => x.id === ds.gid);
+    if (!a) return;
+    const pre = { garminId: a.id, preMin: a.minutes || undefined, preKm: a.km, preNote: a.avgHr ? `Garmin: keskisyke ${a.avgHr}${a.maxHr ? `, max ${a.maxHr}` : ""}` : "" };
+    if (ds.key) return openSheet("form", { key: ds.key, type: "run", date: a.date, ...pre });
+    return openSheet("form", { date: a.date, type: (ds.kind as Kind) || "other", lock: !!ds.ref, ref: ds.ref, preLabel: activityLabel(a), ...pre });
+  }
   if (act === "import") { $("import-file")?.click(); return; }
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.sheet) closeSheet(); });
@@ -761,12 +843,18 @@ let unsubscribe: () => void = () => {};
 function useStore(store: Store) {
   unsubscribe();
   S.store = store;
-  S.settings = null; S.logs = []; S.coach = null;
+  S.settings = null; S.logs = []; S.coach = null; S.garmin = EMPTY_GARMIN; S.garminTried = false;
   S.loaded = { settings: false, logs: false };
   unsubscribe = store.subscribe((p) => {
     if ("settings" in p) { S.settings = p.settings ?? null; S.loaded.settings = true; }
     if ("logs" in p) { S.logs = p.logs ?? []; S.loaded.logs = true; }
     if ("coach" in p && !S.coachBusy) S.coach = p.coach ?? null;
+    if ("garmin" in p) {
+      S.garmin = p.garmin ?? EMPTY_GARMIN;
+      // Haetaan uusi data, kun edellisestä hausta on yli 3 tuntia (kerran per avaus).
+      const age = S.garmin.syncedAt ? Date.now() - Date.parse(S.garmin.syncedAt) : Infinity;
+      if (!S.garminTried && age > 3 * 3600e3) void syncGarmin();
+    }
     // Ensimmäinen kirjautuminen: tili on tyhjä mutta selaimessa on aiempia tietoja → tarjotaan siirtoa.
     if (store.mode === "cloud" && S.loaded.settings && S.loaded.logs)
       S.offerMigrate = !S.settings && !S.logs.length && hasLocalData();

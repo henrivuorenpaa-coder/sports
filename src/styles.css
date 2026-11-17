@@ -225,6 +225,7 @@ button:focus-visible,input:focus-visible,summary:focus-visible,select:focus-visi
 .item.skip .it span{text-decoration:line-through}
 .mark{flex:none;font-size:11px;font-weight:700;border-radius:999px;padding:0 6px;line-height:18px}
 .mark.ok{background:var(--ok);color:var(--surface)}
+.mark.gm{background:var(--muted);color:var(--surface)}
 .mark.miss{background:var(--warn);color:var(--surface)}
 .add{align-self:center;border:0;background:none;white-space:nowrap;color:var(--muted);font-weight:600;font-size:14px;padding:8px 8px;border-radius:999px;display:inline-flex;align-items:center;gap:4px}
 .add:hover{color:var(--fg);background:var(--surface-2)}

@@ -1,31 +1,15 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { getApps, initializeApp } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import { extractJson, isAllowed, MAX_PROMPT_CHARS, parseAllowed } from "./_lib/coach-lib.js";
+import { json, requireUser } from "./_lib/auth.js";
+import { extractJson, MAX_PROMPT_CHARS } from "./_lib/coach-lib.js";
 
 /**
  * POST /api/coach  { prompt }  →  { analysis, proposals }
- *
- * Vaatii Firebase ID -tokenin (Authorization: Bearer …) ja että käyttäjän sähköposti on listalla
- * COACH_ALLOWED_EMAILS. ID-tokenin tarkistus tarvitsee vain projektin tunnuksen, ei palvelutiliä.
- * Ympäristömuuttujat: ANTHROPIC_API_KEY, COACH_ALLOWED_EMAILS, VITE_FIREBASE_PROJECT_ID.
+ * Kirjautuminen ja sallitut sähköpostit: ks. _lib/auth.ts. Env: ANTHROPIC_API_KEY.
  */
-const json = (status: number, body: unknown) =>
-  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-
-function adminAuth() {
-  const app = getApps()[0] ?? initializeApp({ projectId: process.env.VITE_FIREBASE_PROJECT_ID });
-  return getAuth(app);
-}
-
 export async function POST(request: Request) {
   // 1. Kuka kysyy?
-  const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) return json(401, { code: "unauthenticated" });
-  let user;
-  try { user = await adminAuth().verifyIdToken(token); } catch { return json(401, { code: "unauthenticated" }); }
-  if (!isAllowed(user.email, parseAllowed(process.env.COACH_ALLOWED_EMAILS)))
-    return json(403, { code: "not_allowed" });
+  const user = await requireUser(request);
+  if (user instanceof Response) return user;
 
   // 2. Syöte
   let prompt: unknown;

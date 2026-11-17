@@ -2,10 +2,11 @@ import { addDays, isDate, WD, WDL, WDPL, wd } from "./lib/dates.ts";
 import { summary, titleOf, totals } from "./plan.ts";
 import { planFor, programOf } from "./programs/index.ts";
 import { isDone, schedule, slotMap, status } from "./schedule.ts";
-import type { Block, Ctx, Proposal } from "./types.ts";
+import { garminPromptLines } from "./garmin.ts";
+import type { Block, Ctx, GarminData, Proposal } from "./types.ts";
 
 /** Valmentajan prompt. Sama sisältö kulkee myöhemmin Vercelin /api/coach-funktion kautta Claude API:lle. */
-export function coachPrompt(c: Ctx, today: string, q: string) {
+export function coachPrompt(c: Ctx, today: string, q: string, garmin: GarminData | null = null) {
   const st = c.settings, map = slotMap(st), P = planFor(st), prog = programOf(st);
   const sch = schedule(c).sort((a, b) => (a.date < b.date ? -1 : 1));
   const runs = sch.filter((s) => s.date >= addDays(today, -21)).slice(0, 14).map((s) => {
@@ -28,7 +29,7 @@ Muut kirjaukset 28 pv (päivä | laji | tila | kesto | RPE | matka | muistiinpan
 ${logs}
 
 Toistuvat treenit: ${rec}
-Garmin-data: ei vielä yhdistetty (ei sykettä, HRV:tä tai unta käytettävissä). Arvioi RPE:n, muistiinpanojen ja määrien perusteella.
+${garminPromptLines(garmin, today)}
 ${q ? `\nValmennettavan kysymys tai viesti: """${q}"""\n` : ""}
 Tehtävä: analysoi miten harjoittelu sujuu (toteutuminen, rasittavuus, taekwondon kuormitus ja palautuminen) ja ehdota tarvittaessa muutoksia tuleviin juoksuihin (tila "Tänään" tai tuleva päivä). Ole maltillinen: älä kasvata juoksun kokonaismäärää yli 15 % viikossa, pidä kevyet juoksut kevyinä ja vältä kovaa juoksua kovaa taekwondoa seuraavana päivänä. Jos kaikki on kunnossa, älä ehdota muutoksia.
 

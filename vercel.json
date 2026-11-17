@@ -23,6 +23,9 @@
   "functions": {
     "api/coach.ts": {
       "maxDuration": 60
+    },
+    "api/garmin.ts": {
+      "maxDuration": 30
     }
   }
 }
