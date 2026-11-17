@@ -1,9 +1,9 @@
-# Salaisuudet – älä koskaan committaa
-.env
-.env.local
-.env.*.local
-
-node_modules/
-dist/
-.vercel/
+node_modules
+dist
+dev-dist
+.vercel
+.env*
+!.env.example
+*.tsbuildinfo
 .DS_Store
+coverage
