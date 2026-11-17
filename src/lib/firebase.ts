@@ -1,5 +1,8 @@
 import { getApps, initializeApp, type FirebaseApp } from "firebase/app";
-import { GoogleAuthProvider, getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, type Auth, type User } from "firebase/auth";
+import {
+  createUserWithEmailAndPassword, getAuth, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signOut,
+  type Auth, type User,
+} from "firebase/auth";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, type Firestore } from "firebase/firestore";
 import { getFirebaseClientConfig, getFirebaseSetupState } from "./firebase-env.ts";
 
@@ -33,20 +36,23 @@ export function watchUser(cb: (user: User | null) => void) {
   return onAuthStateChanged(auth, cb);
 }
 
-export async function signInWithGoogle() {
+function requireAuth() {
   if (!init() || !auth) throw new Error(firebaseSetup.message);
-  const provider = new GoogleAuthProvider();
-  try {
-    await signInWithPopup(auth, provider);
-  } catch (e) {
-    // Kotinäytön PWA (erityisesti iOS) estää usein ponnahdusikkunat → uudelleenohjaus.
-    const code = (e as { code?: string }).code;
-    if (code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment") {
-      await signInWithRedirect(auth, provider);
-    } else if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") {
-      throw e;
-    }
-  }
+  return auth;
+}
+
+export async function signInEmail(email: string, password: string) {
+  await signInWithEmailAndPassword(requireAuth(), email, password);
+}
+
+export async function signUpEmail(email: string, password: string) {
+  await createUserWithEmailAndPassword(requireAuth(), email, password);
+}
+
+export async function resetPassword(email: string) {
+  const a = requireAuth();
+  a.languageCode = "fi";
+  await sendPasswordResetEmail(a, email);
 }
 
 export async function signOutUser() {

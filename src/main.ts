@@ -10,7 +10,8 @@ import {
 } from "./schedule.ts";
 import { cleanProposals, coachPrompt } from "./coach.ts";
 import { PROGRAMS, planFor, programIdOf, programOf, runCountsOf } from "./programs/index.ts";
-import { firebaseSetup, getFirebaseDb, signInWithGoogle, signOutUser, watchUser } from "./lib/firebase.ts";
+import { firebaseSetup, getFirebaseDb, resetPassword, signInEmail, signOutUser, signUpEmail, watchUser } from "./lib/firebase.ts";
+import { authErrorText } from "./lib/auth-errors.ts";
 import { clearLocal, hasLocalData, localStore, readLocal } from "./storage/local.ts";
 import { firestoreStore } from "./storage/firestore.ts";
 import type { Store, StoreData } from "./storage/store.ts";
@@ -21,7 +22,8 @@ registerSW({ immediate: true });
 /* ---------- tila ---------- */
 type View = "today" | "calendar" | "plan" | "coach" | "prefs";
 type SheetState = {
-  kind: "session" | "event" | "virt" | "form";
+  kind: "session" | "event" | "virt" | "form" | "login";
+  signup?: boolean;
   key?: string; id?: string; ref?: string; type?: Kind; date?: string;
   lock?: boolean; edit?: boolean; doneOnly?: boolean;
 };
@@ -84,7 +86,7 @@ function accountNote() {
   if (S.offerMigrate)
     return `<div class="note ok"><div><b>Tällä laitteella on aiempia kirjauksia.</b> Siirretäänkö ne tilillesi, jotta ne näkyvät kaikilla laitteilla?<div class="act"><button class="btn small primary" data-act="migrate">Siirrä tilille</button><button class="btn small ghost" data-act="migrate-no">Ei nyt</button></div></div></div>`;
   if (firebaseSetup.isReady && S.authReady && !S.user)
-    return `<div class="note tkd"><div><b>Kirjaudu sisään</b>, niin kirjaukset tallentuvat tilillesi ja näkyvät puhelimella ja tietokoneella.<div class="act"><button class="btn small tkd" data-act="login">Kirjaudu Googlella</button></div></div></div>`;
+    return `<div class="note tkd"><div><b>Kirjaudu sisään</b>, niin kirjaukset tallentuvat tilillesi ja näkyvät puhelimella ja tietokoneella.<div class="act"><button class="btn small tkd" data-act="login">Kirjaudu sisään</button></div></div></div>`;
   return "";
 }
 
@@ -319,8 +321,8 @@ function accountCard() {
   if (!firebaseSetup.isReady)
     return `<div class="card"><span class="label">Tallennus</span><p class="muted small">Kirjaukset tallentuvat tällä hetkellä vain tähän selaimeen. Pilvitallennus otetaan käyttöön, kun Firebase-asetukset on lisätty.</p></div>`;
   if (!S.user)
-    return `<div class="card"><span class="label">Tili</span><p class="muted small">Kirjaudu Google-tilillä, niin kirjaukset ja asetukset tallentuvat pilveen ja näkyvät kaikilla laitteillasi. Ilman kirjautumista ne tallentuvat vain tähän selaimeen.</p>
-      <div class="btnrow"><button class="btn tkd" data-act="login"${S.authReady ? "" : " disabled"}>Kirjaudu Googlella</button></div></div>`;
+    return `<div class="card"><span class="label">Tili</span><p class="muted small">Kirjaudu sähköpostilla, niin kirjaukset ja asetukset tallentuvat pilveen ja näkyvät kaikilla laitteillasi. Ilman kirjautumista ne tallentuvat vain tähän selaimeen.</p>
+      <div class="btnrow"><button class="btn tkd" data-act="login"${S.authReady ? "" : " disabled"}>Kirjaudu sisään</button><button class="btn" data-act="signup"${S.authReady ? "" : " disabled"}>Luo tunnus</button></div></div>`;
   return `<div class="card"><span class="label">Tili</span><p class="small">Kirjautuneena: <b>${esc(S.user.email || S.user.displayName || "")}</b></p>
     <p class="muted small">Kirjaukset ja asetukset tallentuvat tilillesi, joten ne näkyvät sekä puhelimella että tietokoneella.</p>
     ${S.offerMigrate || hasLocalData() ? `<button class="btn small" data-act="migrate">Siirrä tämän selaimen kirjaukset tilille</button>` : ""}
@@ -410,6 +412,17 @@ function renderSheet(): void {
       <hr class="sep"><span class="label">Kaikki kerrat</span>
       <div class="inl"><div class="field"><label for="r-min">Kesto jatkossa (min)</label><input type="number" id="r-min" min="5" max="300" step="5" value="${v.minutes}"></div><button class="btn" data-act="rule-min" data-id="${esc(v.id)}">Tallenna</button></div>
       <div class="btnrow"><button class="btn small ${S.pendingDelete === v.id ? "danger" : "ghost"}" data-act="rule-end" data-id="${esc(v.id)}" data-from="${d}">${S.pendingDelete === v.id ? `Vahvista: lopeta ${fi(d)} alkaen` : "Lopeta toisto tästä eteenpäin"}</button></div>`;
+  } else if (sh.kind === "login") {
+    const up = !!sh.signup;
+    body = head("Tili", up ? "Luo tunnus" : "Kirjaudu") + `
+    <form id="login-form" class="view" style="gap:14px" novalidate>
+      <div class="field"><label for="a-email">Sähköposti</label><input type="email" id="a-email" autocomplete="email" inputmode="email" required></div>
+      <div class="field"><label for="a-pw">Salasana${up ? " (vähintään 6 merkkiä)" : ""}</label><input type="password" id="a-pw" autocomplete="${up ? "new-password" : "current-password"}" minlength="6" required></div>
+      <p class="err" id="a-err" hidden></p>
+      <div class="btnrow"><button class="btn primary" type="submit" id="a-submit">${up ? "Luo tunnus" : "Kirjaudu"}</button></div>
+      <div class="btnrow">${up ? `<button class="btn small ghost" type="button" data-act="login">Minulla on jo tunnus</button>`
+        : `<button class="btn small ghost" type="button" data-act="signup">Luo uusi tunnus</button><button class="btn small ghost" type="button" data-act="reset-pw">Unohtuiko salasana?</button>`}</div>
+    </form>`;
   } else if (sh.kind === "form") {
     const s = sh.key ? schedule(c).find((x) => x.key === sh.key) : null;
     const ev = sh.id ? S.logs.find((x) => x.id === sh.id) : null;
@@ -654,8 +667,18 @@ document.addEventListener("click", async (ev) => {
   if (act === "coach-stop") { coachCtl?.abort(); return; }
   if (act === "prop-ok") return applyProposal(+ds.i!, true);
   if (act === "prop-no") return applyProposal(+ds.i!, false);
-  if (act === "login") {
-    try { await signInWithGoogle(); } catch (e) { toast(`Kirjautuminen epäonnistui${(e as { code?: string }).code ? ` (${(e as { code: string }).code})` : ""}.`); }
+  if (act === "login" || act === "signup") {
+    const email = inputVal("a-email");
+    openSheet("login", { signup: act === "signup" });
+    const el = $<HTMLInputElement>("a-email");
+    if (el) { el.value = email; (email ? $("a-pw") : el)?.focus(); }
+    return;
+  }
+  if (act === "reset-pw") {
+    const email = inputVal("a-email").trim(), err = $("a-err")!;
+    if (!email) { err.textContent = "Kirjoita ensin sähköpostiosoitteesi."; err.hidden = false; return; }
+    try { await resetPassword(email); err.hidden = true; toast("Salasanan palautuslinkki lähetetty sähköpostiisi"); }
+    catch (e) { err.textContent = authErrorText(e); err.hidden = false; }
     return;
   }
   if (act === "logout") { await signOutUser(); return; }
@@ -673,6 +696,18 @@ document.addEventListener("change", (e) => {
   document.querySelectorAll<HTMLInputElement>('input[name="p-run"]').forEach((i) => { i.checked = def.includes(+i.value); });
 });
 document.addEventListener("submit", async (ev) => {
+  if ((ev.target as HTMLElement).id === "login-form") {
+    ev.preventDefault();
+    const email = inputVal("a-email").trim(), pw = inputVal("a-pw"), err = $("a-err")!, btn = $<HTMLButtonElement>("a-submit")!;
+    const up = !!S.sheet?.signup;
+    if (!email || !pw) { err.textContent = "Anna sähköposti ja salasana."; err.hidden = false; return; }
+    btn.disabled = true;
+    try {
+      await (up ? signUpEmail(email, pw) : signInEmail(email, pw));
+      closeSheet(); toast(up ? "Tunnus luotu – olet kirjautuneena" : "Kirjauduttu sisään");
+    } catch (e) { err.textContent = authErrorText(e); err.hidden = false; btn.disabled = false; }
+    return;
+  }
   if ((ev.target as HTMLElement).id !== "prefs-form") return;
   ev.preventDefault();
   const n = +(document.querySelector<HTMLInputElement>('input[name="p-n"]:checked')?.value || 2);

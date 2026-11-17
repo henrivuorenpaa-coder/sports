@@ -7,7 +7,7 @@ Käyttöliittymä on suomeksi ja tehty ensisijaisesti puhelimelle (responsiivine
 
 ## Rakenne
 
-Vite + TypeScript (vanilla, ei UI-kirjastoa), PWA (`vite-plugin-pwa`), Firebase (Auth + Firestore). Julkaisu Verceliin.
+Vite + TypeScript (vanilla, ei UI-kirjastoa), PWA (`vite-plugin-pwa`), Firebase (Auth: sähköposti + salasana, Firestore). Julkaisu Verceliin.
 
 - `index.html` – runko (header, näkymien `<section>`it, alanavigaatio)
 - `src/styles.css` – kaikki tyylit (tokenit `:root`issa, tumma teema)
@@ -21,7 +21,7 @@ Vite + TypeScript (vanilla, ei UI-kirjastoa), PWA (`vite-plugin-pwa`), Firebase 
   myöhempien viikkojen avaimia), `virtualsOn()` (toistuvat treenit, `ruleRef = ruleId@date`), `notesFor()`, `repeatSuggestion()`
 - `src/coach.ts` – `coachPrompt()`, `validBlocks()`, `cleanProposals()`
 - `src/storage/` – `Store`-rajapinta; `local.ts` (localStorage `askel5k.v3`) ja `firestore.ts` (`users/{uid}/…`)
-- `src/lib/firebase*.ts` – Firebase-alustus ympäristömuuttujista (`VITE_FIREBASE_*`, ks. `.env.example`), Google-kirjautuminen
+- `src/lib/firebase*.ts` – Firebase-alustus ympäristömuuttujista (`VITE_FIREBASE_*`, ks. `.env.example`), sähköposti + salasana -kirjautuminen
 - `src/main.ts` – UI: renderöinti template-merkkijonoilla, tapahtumat `data-act`/`data-go`-attribuuteilla, sheetit
 - `firestore.rules` – vain oma uid saa lukea ja kirjoittaa
 - `artifact/askel.html` – alkuperäinen yhden tiedoston Claude-artefakti (https://claude.ai/artifact/B4SPwtV3F9xVkTtpWGGqXT),
@@ -45,7 +45,7 @@ selaimen tietojen siirtoa tilille. Asetuksissa on JSON-vienti/-tuonti (myös art
 ## Etenemissuunnitelma
 
 1. ✅ Git + projektirunko (Vite, TS, testit, PWA), ohjelmaluettelo
-2. Firebase: projekti, Google-kirjautuminen, Firestore, `firestore.rules` käyttöön (`firebase deploy --only firestore:rules`)
+2. Firebase: projekti, sähköpostikirjautuminen (Email/Password), Firestore, `firestore.rules` käyttöön (`firebase deploy --only firestore:rules`)
 3. Vercel: repo kytketään, `VITE_FIREBASE_*` ympäristömuuttujiksi, Vercel-domain Firebase Authin sallittuihin domaineihin
 4. Datan siirto artefaktista: luetaan artefaktin db Claude Codessa ArtifactData-työkalulla → JSON → Asetukset → Tuo tiedot
 5. Vercel `/api`-funktiot (avaimet ympäristömuuttujina, Firestoreen Admin SDK:lla), yksi kerrallaan:
